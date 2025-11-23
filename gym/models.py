@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings 
 
 
 class User(models.Model):
@@ -41,12 +42,29 @@ class Membership(models.Model):
         limit_choices_to={"role": "client"},
         related_name="memberships",
     )
-    membership_type = models.ForeignKey(MembershipType, on_delete=models.CASCADE, verbose_name="Тип абонемента")
+    membership_type = models.ForeignKey(
+        MembershipType,
+        on_delete=models.CASCADE,
+        verbose_name="Тип абонемента",
+    )
     is_active = models.BooleanField("Активен", default=True)
+
+    # НОВОЕ ПОЛЕ: кто создал абонемент
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,  # это django.contrib.auth.models.User
+        verbose_name="Пользователь (владелец записи)",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="memberships_created",
+    )
 
     class Meta:
         verbose_name = "Абонемент"
         verbose_name_plural = "Абонементы"
+
+    def str(self):
+        return f"{self.client} – {self.membership_type}"
 
 
 class WorkoutSession(models.Model):

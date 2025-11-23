@@ -60,6 +60,21 @@ class MembershipsViewset(
     )
     serializer_class = MembershipSerializer
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+
+        if user.is_superuser:
+            # суперюзер видит всех, но может фильтровать по owner ?owner=<id>
+            owner_id = self.request.query_params.get("owner")
+            if owner_id:
+                qs = qs.filter(owner_id=owner_id)
+        else:
+            # обычный юзер видит только свои абонементы
+            qs = qs.filter(owner=user)
+
+        return qs
+
 
 class WorkoutSessionsViewset(
     mixins.CreateModelMixin,
