@@ -1,0 +1,246 @@
+<script setup>
+import axios from "axios"
+import { ref, onBeforeMount } from "vue"
+import Cookies from "js-cookie"
+
+const users = ref([])
+const loading = ref(false)
+const roles = [
+  { value: "client", label: "Клиент" },
+  { value: "trainer", label: "Тренер" },
+]
+const selectedRoleFilter = ref("") 
+
+const userToAdd = ref({ name: "", role: "client", phone: "", specialization: "" })
+const userPictureRef = ref()
+const userAddImageUrl = ref()
+
+const userToEdit = ref({})
+const editPictureRef = ref()
+const editImageUrl = ref()
+
+const imageModalUrl = ref("")
+
+async function fetchUsers() {
+  loading.value = true
+  let url = "/api/users/"
+  if (selectedRoleFilter.value) url += `?role=${selectedRoleFilter.value}`
+  const r = await axios.get(url)
+  users.value = r.data
+  loading.value = false
+}
+
+async function onUserAdd() {
+  const formData = new FormData()
+  if (userPictureRef.value?.files?.[0]) {
+    formData.append("picture", userPictureRef.value.files[0])
+  }
+  formData.append("name", userToAdd.value.name || "")
+  formData.append("role", userToAdd.value.role)
+  if (userToAdd.value.role === "client") {
+    formData.append("phone", userToAdd.value.phone || "")
+  } else {
+    formData.append("specialization", userToAdd.value.specialization || "")
+  }
+
+  await axios.post("/api/users/", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  })
+  await fetchUsers()
+
+  userToAdd.value = { name: "", role: "client", phone: "", specialization: "" }
+  userPictureRef.value && (userPictureRef.value.value = "")
+  userAddImageUrl.value = ""
+}
+
+async function onRemoveClick(user) {
+  await axios.delete(`/api/users/${user.id}/`)
+  await fetchUsers()
+}
+
+async function onUserEditClick(user) {
+  userToEdit.value = { ...user }
+  editImageUrl.value = user.picture
+}
+
+async function onUpdateUser() {
+  const formData = new FormData()
+  if (editPictureRef.value?.files?.[0]) {
+    formData.append("picture", editPictureRef.value.files[0])
+  }
+  formData.append("name", userToEdit.value.name || "")
+  if (userToEdit.value.role === "client") {
+    formData.append("phone", userToEdit.value.phone || "")
+  } else {
+    formData.append("specialization", userToEdit.value.specialization || "")
+  }
+
+  await axios.patch(`/api/users/${userToEdit.value.id}/`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  })
+  await fetchUsers()
+}
+
+function onAddPictureChange() {
+  if (userPictureRef.value?.files?.[0]) {
+    userAddImageUrl.value = URL.createObjectURL(userPictureRef.value.files[0])
+  }
+}
+function onEditPictureChange() {
+  if (editPictureRef.value?.files?.[0]) {
+    editImageUrl.value = URL.createObjectURL(editPictureRef.value.files[0])
+  }
+}
+function openImageModal(imageUrl) {
+  imageModalUrl.value = imageUrl
+}
+
+onBeforeMount(async () => {
+  axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken")
+  await fetchUsers()
+})
+</script>
+
+<template>
+  <div class="modal fade" id="imageModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5">Просмотр изображения</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body text-center">
+          <img :src="imageModalUrl" class="img-fluid" style="max-height:70vh" alt="">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="editUserModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5">Редактировать</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-floating mb-2">
+            <input type="text" class="form-control" v-model="userToEdit.name">
+            <label>ФИО</label>
+          </div>
+
+          <div v-if="userToEdit.role === 'client'" class="form-floating mb-2">
+            <input type="text" class="form-control" v-model="userToEdit.phone">
+            <label>Телефон</label>
+          </div>
+
+          <div v-else class="form-floating mb-2">
+            <input type="text" class="form-control" v-model="userToEdit.specialization">
+            <label>Специализация</label>
+          </div>
+
+          <input type="file" class="form-control mb-2" ref="editPictureRef" @change="onEditPictureChange">
+          <img :src="editImageUrl" v-if="editImageUrl" style="max-width:60px" alt="">
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+          <button class="btn btn-primary" data-bs-dismiss="modal" @click="onUpdateUser">Сохранить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container-fluid p-3">
+    <div class="row g-2 align-items-center mb-3">
+      <div class="col">
+        <div class="form-floating">
+          <input type="text" class="form-control" v-model="userToAdd.name" required>
+          <label>ФИО</label>
+        </div>
+      </div>
+
+      <div class="col-auto">
+        <div class="form-floating">
+          <select class="form-select" v-model="userToAdd.role">
+            <option value="client">Клиент</option>
+            <option value="trainer">Тренер</option>
+          </select>
+          <label>Роль</label>
+        </div>
+      </div>
+
+      <div class="col-auto" v-if="userToAdd.role === 'client'">
+        <div class="form-floating">
+          <input type="text" class="form-control" v-model="userToAdd.phone" required>
+          <label>Телефон</label>
+        </div>
+      </div>
+
+      <div class="col-auto" v-if="userToAdd.role === 'trainer'">
+        <div class="form-floating">
+          <input type="text" class="form-control" v-model="userToAdd.specialization" required>
+          <label>Специализация</label>
+        </div>
+      </div>
+
+      <div class="col-auto">
+        <input type="file" class="form-control" ref="userPictureRef" @change="onAddPictureChange">
+      </div>
+      <div class="col-auto">
+        <img :src="userAddImageUrl" v-if="userAddImageUrl" style="max-width:60px" alt="">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-primary" @click="onUserAdd">Добавить</button>
+      </div>
+    </div>
+
+    <div class="row mb-3">
+      <div class="col-auto">
+        <select class="form-select" v-model="selectedRoleFilter" @change="fetchUsers">
+          <option value="">Все пользователи</option>
+          <option value="client">Клиенты</option>
+          <option value="trainer">Тренеры</option>
+        </select>
+      </div>
+    </div>
+
+    <div v-if="loading" class="text-center p-3">Загрузка...</div>
+    <div v-else>
+      <div v-for="user in users" :key="user.id" class="user-item">
+        <div>{{ user.name }}</div>
+        <div v-show="user.picture">
+          <img :src="user.picture" data-bs-toggle="modal" data-bs-target="#imageModal"
+               @click="openImageModal(user.picture)" style="max-width:60px; cursor:pointer;" alt="">
+        </div>
+        <div>
+          <span v-if="user.role === 'client'">{{ user.phone || '—' }}</span>
+          <span v-else>{{ user.specialization || '—' }}</span>
+        </div>
+        <div>
+          <span class="badge bg-secondary">{{ user.role === 'client' ? 'Клиент' : 'Тренер' }}</span>
+        </div>
+        
+        <button class="btn btn-success" @click="onUserEditClick(user)" data-bs-toggle="modal" data-bs-target="#editUserModal">
+          <i class="bi bi-pen-fill"></i>
+        </button>
+        <button class="btn btn-danger" @click="onRemoveClick(user)">
+          <i class="bi bi-x"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped lang="scss">
+.user-item {
+  padding: 0.5rem;
+  margin: 0.5rem;
+  border: 1px solid silver;
+  border-radius: 8px;
+  display: grid;
+  align-items: center;
+  grid-template-columns: 1fr auto auto auto auto auto;
+  gap: 12px;
+}
+</style>
