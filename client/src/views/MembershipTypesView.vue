@@ -5,14 +5,21 @@ import Cookies from 'js-cookie'
 
 const membershipTypes = ref([]);
 const loading = ref(false)
+const stats = ref(null)
 const membershipTypeToAdd = ref([])
 const membershipTypeToEdit = ref({});
 
 async function fetchMembershipTypes() {
   loading.value = true
-  const r = await axios.get("/api/membershiptype/")
-  console.log(r.data)
-  membershipTypes.value = r.data
+
+  const [listRes, statsRes] = await Promise.all([
+    axios.get("/api/membershiptype/"),
+    axios.get("/api/membershiptype/stats/"),
+  ])
+
+  membershipTypes.value = listRes.data
+  stats.value = statsRes.data
+
   loading.value = false
 }
 async function onMembershipTypeAdd() {
@@ -64,7 +71,7 @@ onBeforeMount(async () => {
       </div>
       <div class="col-auto">
         <div class="form-floating">
-          <input type="text" class="form-control" v-model="membershipTypeToEdit.duration">
+          <input type="text" class="form-control" v-model="membershipTypeToEdit.description">
           <label for="floatingInput">Описание</label>
         </div>
       </div>
@@ -93,7 +100,7 @@ onBeforeMount(async () => {
       </div>
       <div class="col-auto">
         <div class="form-floating">
-          <input type="text" class="form-control" v-model="membershipTypeToAdd.duration" required>
+          <input type="text" class="form-control" v-model="membershipTypeToAdd.description" required>
           <label for="floatingInput">Описание</label>
         </div>
       </div>
@@ -103,6 +110,14 @@ onBeforeMount(async () => {
     </div>
 </div>
 
+<div v-if="stats" class="mb-2">
+    <div class="alert alert-info py-2 mb-0">
+      <strong>Статистика типов абонементов:</strong>
+      <span class="ms-2">
+        всего типов: {{ stats.count }}
+      </span>
+    </div>
+  </div>
 
     <div>
       <div v-for="item in membershipTypes" class="membershipType-item">

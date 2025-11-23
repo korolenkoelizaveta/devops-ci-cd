@@ -8,6 +8,7 @@ const memberships = ref([])
 const clients = ref([])             
 const membershipTypes = ref([])
 const loading = ref(false)
+const stats = ref(null) 
 
 const membershipToAdd = ref({ client: null, membership_type: null, is_active: true })
 const membershipToEdit = ref({})
@@ -17,8 +18,15 @@ const membershipTypeById = computed(() => _.keyBy(membershipTypes.value, x => x.
 
 async function fetchMemberships() {
   loading.value = true
-  const r = await axios.get("/api/membership/")
-  memberships.value = r.data
+
+  const [listRes, statsRes] = await Promise.all([
+    axios.get("/api/membership/"),
+    axios.get("/api/membership/stats/"),
+  ])
+
+  memberships.value = listRes.data
+  stats.value = statsRes.data
+
   loading.value = false
 }
 
@@ -148,6 +156,17 @@ onBeforeMount(async () => {
           <button class="btn btn-primary" @click="onMembershipAdd">Добавить</button>
         </div>
       </div>
+    </div>
+  </div>
+
+    <div class="container-fluid mt-2" v-if="stats">
+    <div class="alert alert-info py-2 mb-2">
+      <strong>Статистика абонементов:</strong>
+      <span class="ms-2">
+        всего: {{ stats.count }},
+        активных: {{ stats.active }},
+        неактивных: {{ stats.inactive }}
+      </span>
     </div>
   </div>
 

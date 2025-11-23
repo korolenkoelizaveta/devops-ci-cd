@@ -8,6 +8,7 @@ const workoutSessions = ref([])
 const clients = ref([])   // /api/users/?role=client
 const trainers = ref([])  // /api/users/?role=trainer
 const loading = ref(false)
+const stats = ref(null)
 
 const workoutSessionsToAdd = ref({ client: null, trainer: null, session_date: "" })
 const workoutSessionsToEdit = ref({})
@@ -17,8 +18,15 @@ const trainersById = computed(() => _.keyBy(trainers.value, x => x.id))
 
 async function fetchWorkoutSessions() {
   loading.value = true
-  const r = await axios.get("/api/workoutsession/")
-  workoutSessions.value = r.data
+
+  const [listRes, statsRes] = await Promise.all([
+    axios.get("/api/workoutsession/"),
+    axios.get("/api/workoutsession/stats/"),
+  ])
+
+  workoutSessions.value = listRes.data
+  stats.value = statsRes.data
+
   loading.value = false
 }
 
@@ -149,6 +157,30 @@ onBeforeMount(async () => {
           <button class="btn btn-primary" @click="onWorkoutSessionsAdd">Добавить</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div class="container-fluid" v-if="stats">
+    <div class="alert alert-info py-2 mb-2">
+      <strong>Статистика тренировок:</strong><br>
+      <span class="ms-3">
+        всего: {{ stats.total }}<br>
+      </span>
+      <span class="ms-3">
+        среднее на клиента: {{ stats.avg_per_client.toFixed(1) }}<br>
+      </span>
+      <template v-if="stats.top_trainer_name">
+        <span class="ms-3">
+          самый загруженный тренер: {{ stats.top_trainer_name }}
+          ({{ stats.top_trainer_sessions }} тренировок)<br>
+        </span>
+      </template>
+      <template v-if="stats.top_client_name">
+        <span class="ms-3">
+          самый активный клиент: {{ stats.top_client_name }}
+          ({{ stats.top_client_sessions }} тренировок)
+        </span>
+      </template>
     </div>
   </div>
 

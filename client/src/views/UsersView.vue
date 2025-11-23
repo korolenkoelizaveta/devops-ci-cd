@@ -5,6 +5,7 @@ import Cookies from "js-cookie"
 
 const users = ref([])
 const loading = ref(false)
+const stats = ref(null) 
 const roles = [
   { value: "client", label: "Клиент" },
   { value: "trainer", label: "Тренер" },
@@ -25,10 +26,15 @@ async function fetchUsers() {
   loading.value = true
   let url = "/api/users/"
   if (selectedRoleFilter.value) url += `?role=${selectedRoleFilter.value}`
-  const r = await axios.get(url)
-  users.value = r.data
+  const [usersRes, statsRes] = await Promise.all([
+    axios.get(url),
+    axios.get("/api/users/stats/"),
+  ])
+  users.value = usersRes.data
+  stats.value = statsRes.data
   loading.value = false
 }
+
 
 async function onUserAdd() {
   const formData = new FormData()
@@ -204,6 +210,19 @@ onBeforeMount(async () => {
         </select>
       </div>
     </div>
+
+    <div class="row mb-3" v-if="stats">
+  <div class="col">
+    <div class="alert alert-info py-2 mb-0">
+      <strong>Статистика пользователей:</strong>
+      <span class="ms-2">
+        Всего: {{ stats.count }},
+        клиентов: {{ stats.clients }},
+        тренеров: {{ stats.trainers }}
+      </span>
+    </div>
+  </div>
+</div>
 
     <div v-if="loading" class="text-center p-3">Загрузка...</div>
     <div v-else>
