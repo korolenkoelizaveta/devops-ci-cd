@@ -3,11 +3,11 @@ from gym.models import User, MembershipType, Membership, WorkoutSession
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
-    list_display = ("name", "role", "phone", "specialization")
+    list_display = ("name", "role", "phone", "specialization", "account")
     list_filter = ("role",)
     search_fields = ("name", "phone", "specialization") 
     fieldsets = (
-        (None, {"fields": ("name", "role", "picture")}),
+        (None, {"fields": ("name", "role", "picture", "account")}),
         ("Дополнительно", {"fields": ("phone", "specialization")}),
     )
 

@@ -3,9 +3,26 @@ from django.conf import settings
 
 
 class User(models.Model):
+    """
+    Сделать логику для тех ролей
+    клиент -- видит свои тренировки(workoutsession) и всех тренеров в пользователях(user), видит свой абонемент(membership), и все типы абонементов(membershiptype)
+    тренер -- видит свои тренировки(workoutsession) и своих клиентов(user), и их абонементы(membership), и все типы абонементов (membershiptype)
+    админ -- видит все(сейчас настроен)
+    """
+
     class Role(models.TextChoices):
         CLIENT = "client", "Клиент"
         TRAINER = "trainer", "Тренер"
+        ADMIN = "admin", "Администратор"
+
+    account = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        verbose_name="Аккаунт (auth user)",
+        related_name="gym_user",
+    )
 
     name = models.TextField("ФИО")
     role = models.CharField("Роль", max_length=16, choices=Role.choices)
@@ -13,16 +30,19 @@ class User(models.Model):
     specialization = models.TextField("Специализация", blank=True, null=True)  # для тренера
     picture = models.ImageField("Изображение", null=True, blank=True, upload_to="users")
     
-
     class Meta:
         verbose_name = "Пользователь"
         verbose_name_plural = "Пользователи"
 
-    def __str__(self) -> str: 
+    def str(self) -> str: 
         return f"{self.name} ({self.get_role_display()})"
 
 
 class MembershipType(models.Model):
+    """
+    Сделать статистику с иифой сколько юзеров по каждому типу
+    """
+
     type = models.TextField("Тип абонемента")
     description = models.TextField("Описание", null=True)
 
@@ -49,9 +69,8 @@ class Membership(models.Model):
     )
     is_active = models.BooleanField("Активен", default=True)
 
-    # НОВОЕ ПОЛЕ: кто создал абонемент
     owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL,  # это django.contrib.auth.models.User
+        settings.AUTH_USER_MODEL, 
         verbose_name="Пользователь (владелец записи)",
         on_delete=models.CASCADE,
         null=True,

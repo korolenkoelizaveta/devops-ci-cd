@@ -1,13 +1,22 @@
 <script setup>
 import axios from "axios"
-import { ref, onBeforeMount } from "vue"
-import Cookies from 'js-cookie'
+import { ref, onBeforeMount, computed } from "vue"
+import Cookies from "js-cookie"
 
-const membershipTypes = ref([]);
+const membershipTypes = ref([])
 const loading = ref(false)
-const stats = ref(null)
-const membershipTypeToAdd = ref([])
-const membershipTypeToEdit = ref({});
+const stats = ref([])        
+
+const membershipTypeToAdd = ref({})
+const membershipTypeToEdit = ref({})
+
+const profile = ref(null)
+
+const canManageMembershipTypes = computed(() => {
+  const p = profile.value
+  if (!p) return false
+  return Boolean(p.is_superuser || p.is_admin || p.role === "admin")
+})
 
 async function fetchMembershipTypes() {
   loading.value = true
@@ -18,70 +27,115 @@ async function fetchMembershipTypes() {
   ])
 
   membershipTypes.value = listRes.data
-  stats.value = statsRes.data
+  stats.value = Array.isArray(statsRes.data) ? statsRes.data : []
 
   loading.value = false
 }
+
 async function onMembershipTypeAdd() {
+  if (!canManageMembershipTypes.value) return
+
   await axios.post("/api/membershiptype/", {
-    ...membershipTypeToAdd.value
+    ...membershipTypeToAdd.value,
   })
+  membershipTypeToAdd.value = {}
   await fetchMembershipTypes()
 }
 
 async function onRemoveClick(membershiptype) {
-  await axios.delete(`/api/membershiptype/${membershiptype.id}/`);
-  await fetchMembershipTypes();
+  if (!canManageMembershipTypes.value) return
+
+  await axios.delete(`/api/membershiptype/${membershiptype.id}/`)
+  await fetchMembershipTypes()
 }
 
 async function onMembershipTypeEditClick(membershiptype) {
-  membershipTypeToEdit.value = {...membershiptype}
+  if (!canManageMembershipTypes.value) return
+
+  membershipTypeToEdit.value = { ...membershiptype }
 }
 
 async function onUpdateMembershipType() {
+  if (!canManageMembershipTypes.value) return
+
   await axios.put(`/api/membershiptype/${membershipTypeToEdit.value.id}/`, {
     ...membershipTypeToEdit.value,
   })
-  await fetchMembershipTypes();
+  await fetchMembershipTypes()
 }
 
 onBeforeMount(async () => {
+  axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken")
+
+  try {
+    const profileRes = await axios.get("/api/userprofile/info/")
+    profile.value = profileRes.data
+  } catch (e) {
+    profile.value = null
+  }
+
   await fetchMembershipTypes()
-  axios.defaults.headers.common['X-CSRFToken'] = Cookies.get("csrftoken");
 })
 </script>
 
 <template>
-  <div class="modal fade" id="editMembershipTypeModal" tabindex="-1">
+  <div
+    class="modal fade"
+    id="editMembershipTypeModal"
+    tabindex="-1"
+    v-if="canManageMembershipTypes"
+  >
     <div class="modal-dialog">
       <div class="modal-content">
         <div class="modal-header">
-          <h1 class="modal-title fs-5" id="exampleModalLabel">
-            редактировать
+          <h1 class="modal-title fs-5">
+            Редактировать тип абонемента
           </h1>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          <button
+            type="button"
+            class="btn-close"
+            data-bs-dismiss="modal"
+            aria-label="Close"
+          ></button>
         </div>
         <div class="modal-body">
           <div class="row">
-      <div class="col">
-        <div class="form-floating">
-          <input type="text" class="form-control" v-model="membershipTypeToEdit.type">
-          <label for="floatingInput">Тип абонемента</label>
-        </div>
-      </div>
-      <div class="col-auto">
-        <div class="form-floating">
-          <input type="text" class="form-control" v-model="membershipTypeToEdit.description">
-          <label for="floatingInput">Описание</label>
-        </div>
-      </div>
-    </div>
+            <div class="col">
+              <div class="form-floating">
+                <input
+                  type="text"
+                  class="form-control"
+                  v-model="membershipTypeToEdit.type"
+                >
+                <label>Тип абонемента</label>
+              </div>
+            </div>
+            <div class="col-auto">
+              <div class="form-floating">
+                <input
+                  type="text"
+                  class="form-control"
+                  v-model="membershipTypeToEdit.description"
+                >
+                <label>Описание</label>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            data-bs-dismiss="modal"
+          >
             Закрыть
           </button>
-          <button data-bs-dismiss="modal" type="button" class="btn btn-primary" @click="onUpdateMembershipType">
+          <button
+            data-bs-dismiss="modal"
+            type="button"
+            class="btn btn-primary"
+            @click="onUpdateMembershipType"
+          >
             Сохранить
           </button>
         </div>
@@ -90,51 +144,89 @@ onBeforeMount(async () => {
   </div>
 
   <div class="container-fluid">
-  <div class="p-2">
-    <div class="row">
-      <div class="col">
-        <div class="form-floating">
-          <input type="text" class="form-control" v-model="membershipTypeToAdd.type" required>
-          <label for="floatingInput">Тип абонемента</label>
+    <div class="p-2" v-if="canManageMembershipTypes">
+      <div class="row">
+        <div class="col">
+          <div class="form-floating">
+            <input
+              type="text"
+              class="form-control"
+              v-model="membershipTypeToAdd.type"
+              required
+            >
+            <label>Тип абонемента</label>
+          </div>
         </div>
-      </div>
-      <div class="col-auto">
-        <div class="form-floating">
-          <input type="text" class="form-control" v-model="membershipTypeToAdd.description" required>
-          <label for="floatingInput">Описание</label>
+        <div class="col-auto">
+          <div class="form-floating">
+            <input
+              type="text"
+              class="form-control"
+              v-model="membershipTypeToAdd.description"
+              required
+            >
+            <label>Описание</label>
+          </div>
         </div>
-      </div>
-      <div class="col-auto">
-        <button class="btn btn-primary" @click="onMembershipTypeAdd">Добавить</button>
+        <div class="col-auto">
+          <button class="btn btn-primary" @click="onMembershipTypeAdd">
+            Добавить
+          </button>
+        </div>
       </div>
     </div>
-</div>
 
-<div v-if="stats" class="mb-2">
-    <div class="alert alert-info py-2 mb-0">
-      <strong>Статистика типов абонементов:</strong>
-      <span class="ms-2">
-        всего типов: {{ stats.count }}
-      </span>
+    <div
+      v-if="canManageMembershipTypes && stats && stats.length"
+      class="mb-3"
+    >
+      <div class="table-responsive small" >
+        <table class="table table-sm align-middle mb-0 ">
+          <thead>
+            <tr  >
+              <th style="background: #87CEFA;">Тип</th>
+              <th style="background: #87CEFA;">Кол-во </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in stats" :key="row.id">
+              <td style="background: #d7effd;">{{ row.type }}</td>
+              <td style="background: #d7effd;">{{ row.users_count }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
-  </div>
 
     <div>
-      <div v-for="item in membershipTypes" class="membershipType-item">
-        <div>{{ item.type }} </div>
+      <div
+        v-for="item in membershipTypes"
+        :key="item.id"
+        class="membershipType-item"
+      >
+        <div>{{ item.type }}</div>
         <div>{{ item.description }}</div>
-        <button class="btn btn-success" @click="onMembershipTypeEditClick(item)" data-bs-toggle="modal"
-          data-bs-target="#editMembershipTypeModal">
+
+        <button
+          v-if="canManageMembershipTypes"
+          class="btn btn-success"
+          @click="onMembershipTypeEditClick(item)"
+          data-bs-toggle="modal"
+          data-bs-target="#editMembershipTypeModal"
+        >
           <i class="bi bi-pen-fill"></i>
         </button>
-        <button class="btn btn-danger" @click="onRemoveClick(item)">
+        <button
+          v-if="canManageMembershipTypes"
+          class="btn btn-danger"
+          @click="onRemoveClick(item)"
+        >
           <i class="bi bi-x"></i>
         </button>
       </div>
     </div>
   </div>
 </template>
-
 
 <style lang="scss" scoped>
 .membershipType-item {

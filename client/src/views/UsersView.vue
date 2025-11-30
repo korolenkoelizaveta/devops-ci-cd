@@ -1,48 +1,85 @@
 <script setup>
 import axios from "axios"
-import { ref, onBeforeMount } from "vue"
+import { ref, onBeforeMount, computed } from "vue"
 import Cookies from "js-cookie"
 
 const users = ref([])
 const loading = ref(false)
-const stats = ref(null) 
+const stats = ref(null)
+
+const profile = ref(null)
+
 const roles = [
   { value: "client", label: "Клиент" },
   { value: "trainer", label: "Тренер" },
 ]
-const selectedRoleFilter = ref("") 
+const selectedRoleFilter = ref("")
 
 const userToAdd = ref({ name: "", role: "client", phone: "", specialization: "" })
 const userPictureRef = ref()
-const userAddImageUrl = ref()
+const userAddImageUrl = ref("")
 
 const userToEdit = ref({})
 const editPictureRef = ref()
-const editImageUrl = ref()
+const editImageUrl = ref("")
 
 const imageModalUrl = ref("")
+
+const canManageUsers = computed(() => {
+  const p = profile.value
+  if (!p) return false
+
+  return Boolean(
+    p.is_superuser ||      
+    p.is_admin ||        
+    p.role === "admin"     
+  )
+})
 
 async function fetchUsers() {
   loading.value = true
   let url = "/api/users/"
-  if (selectedRoleFilter.value) url += `?role=${selectedRoleFilter.value}`
+  if (selectedRoleFilter.value) {
+    url += `?role=${selectedRoleFilter.value}`
+  }
+
   const [usersRes, statsRes] = await Promise.all([
     axios.get(url),
     axios.get("/api/users/stats/"),
   ])
+
   users.value = usersRes.data
   stats.value = statsRes.data
   loading.value = false
 }
 
+const statsMessage = computed(() => {
+  if (!stats.value) return ""
+  const s = stats.value
+
+  if (s.clients === 0 && s.trainers > 0) {
+    return `Доступных тренеров: ${s.trainers}`
+  }
+
+  if (s.trainers === 0 && s.clients > 0) {
+    return `Моих клиентов: ${s.clients}`
+  }
+
+  return `Всего: ${s.count}, клиентов: ${s.clients}, тренеров: ${s.trainers}`
+})
 
 async function onUserAdd() {
+  if (!canManageUsers.value) return
+
   const formData = new FormData()
+
   if (userPictureRef.value?.files?.[0]) {
     formData.append("picture", userPictureRef.value.files[0])
   }
+
   formData.append("name", userToAdd.value.name || "")
   formData.append("role", userToAdd.value.role)
+
   if (userToAdd.value.role === "client") {
     formData.append("phone", userToAdd.value.phone || "")
   } else {
@@ -52,10 +89,13 @@ async function onUserAdd() {
   await axios.post("/api/users/", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   })
+
   await fetchUsers()
 
   userToAdd.value = { name: "", role: "client", phone: "", specialization: "" }
-  userPictureRef.value && (userPictureRef.value.value = "")
+  if (userPictureRef.value) {
+    userPictureRef.value.value = ""
+  }
   userAddImageUrl.value = ""
 }
 
@@ -65,16 +105,22 @@ async function onRemoveClick(user) {
 }
 
 async function onUserEditClick(user) {
+  if (!canManageUsers.value) return
   userToEdit.value = { ...user }
   editImageUrl.value = user.picture
 }
 
 async function onUpdateUser() {
+  if (!canManageUsers.value) return
+
   const formData = new FormData()
+
   if (editPictureRef.value?.files?.[0]) {
     formData.append("picture", editPictureRef.value.files[0])
   }
+
   formData.append("name", userToEdit.value.name || "")
+
   if (userToEdit.value.role === "client") {
     formData.append("phone", userToEdit.value.phone || "")
   } else {
@@ -84,6 +130,7 @@ async function onUpdateUser() {
   await axios.patch(`/api/users/${userToEdit.value.id}/`, formData, {
     headers: { "Content-Type": "multipart/form-data" },
   })
+
   await fetchUsers()
 }
 
@@ -92,17 +139,27 @@ function onAddPictureChange() {
     userAddImageUrl.value = URL.createObjectURL(userPictureRef.value.files[0])
   }
 }
+
 function onEditPictureChange() {
   if (editPictureRef.value?.files?.[0]) {
     editImageUrl.value = URL.createObjectURL(editPictureRef.value.files[0])
   }
 }
+
 function openImageModal(imageUrl) {
   imageModalUrl.value = imageUrl
 }
 
 onBeforeMount(async () => {
   axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken")
+
+  try {
+    const profileRes = await axios.get("/api/userprofile/info/")
+    profile.value = profileRes.data
+  } catch (e) {
+    profile.value = null
+  }
+
   await fetchUsers()
 })
 </script>
@@ -158,7 +215,7 @@ onBeforeMount(async () => {
   </div>
 
   <div class="container-fluid p-3">
-    <div class="row g-2 align-items-center mb-3">
+    <div class="row g-2 align-items-center mb-3" v-if="canManageUsers">
       <div class="col">
         <div class="form-floating">
           <input type="text" class="form-control" v-model="userToAdd.name" required>
@@ -200,8 +257,8 @@ onBeforeMount(async () => {
         <button class="btn btn-primary" @click="onUserAdd">Добавить</button>
       </div>
     </div>
-
-    <div class="row mb-3">
+<!--
+     <div class="row mb-3">
       <div class="col-auto">
         <select class="form-select" v-model="selectedRoleFilter" @change="fetchUsers">
           <option value="">Все пользователи</option>
@@ -209,17 +266,13 @@ onBeforeMount(async () => {
           <option value="trainer">Тренеры</option>
         </select>
       </div>
-    </div>
+    </div> -->
 
     <div class="row mb-3" v-if="stats">
   <div class="col">
     <div class="alert alert-info py-2 mb-0">
       <strong>Статистика пользователей:</strong>
-      <span class="ms-2">
-        Всего: {{ stats.count }},
-        клиентов: {{ stats.clients }},
-        тренеров: {{ stats.trainers }}
-      </span>
+      <span class="ms-2">{{ statsMessage }}</span>
     </div>
   </div>
 </div>
@@ -227,26 +280,44 @@ onBeforeMount(async () => {
     <div v-if="loading" class="text-center p-3">Загрузка...</div>
     <div v-else>
       <div v-for="user in users" :key="user.id" class="user-item">
-        <div>{{ user.name }}</div>
-        <div v-show="user.picture">
-          <img :src="user.picture" data-bs-toggle="modal" data-bs-target="#imageModal"
-               @click="openImageModal(user.picture)" style="max-width:60px; cursor:pointer;" alt="">
-        </div>
-        <div>
-          <span v-if="user.role === 'client'">{{ user.phone || '—' }}</span>
-          <span v-else>{{ user.specialization || '—' }}</span>
-        </div>
-        <div>
-          <span class="badge bg-secondary">{{ user.role === 'client' ? 'Клиент' : 'Тренер' }}</span>
-        </div>
-        
-        <button class="btn btn-success" @click="onUserEditClick(user)" data-bs-toggle="modal" data-bs-target="#editUserModal">
-          <i class="bi bi-pen-fill"></i>
-        </button>
-        <button class="btn btn-danger" @click="onRemoveClick(user)">
-          <i class="bi bi-x"></i>
-        </button>
-      </div>
+  <div>{{ user.name }}</div>
+  <div v-show="user.picture">
+    <img
+      :src="user.picture"
+      data-bs-toggle="modal"
+      data-bs-target="#imageModal"
+      @click="openImageModal(user.picture)"
+      style="max-width:60px; cursor:pointer;"
+      alt=""
+    >
+  </div>
+  <div>
+    <span v-if="user.role === 'client'">{{ user.phone || "—" }}</span>
+    <span v-else>{{ user.specialization || "—" }}</span>
+  </div>
+  <div>
+    <span class="badge bg-secondary">
+      {{ user.role === "client" ? "Клиент" : "Тренер" }}
+    </span>
+  </div>
+
+  <button
+    v-if="canManageUsers"
+    class="btn btn-success"
+    @click="onUserEditClick(user)"
+    data-bs-toggle="modal"
+    data-bs-target="#editUserModal"
+  >
+    <i class="bi bi-pen-fill"></i>
+  </button>
+  <button
+    v-if="canManageUsers"
+    class="btn btn-danger"
+    @click="onRemoveClick(user)"
+  >
+    <i class="bi bi-x"></i>
+  </button>
+</div>
     </div>
   </div>
 </template>

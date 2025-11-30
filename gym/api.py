@@ -58,6 +58,35 @@ class UserProfileViewSet(GenericViewSet):
 
             cache_key = f"otp_good:{request.user.id}"
             return bool(cache.get(cache_key, False))
+        
+    @action(detail=False, url_path="info", methods=["GET"])
+    def info(self, request, *args, **kwargs):
+        auth_user = request.user
+
+        # базовая инфа из auth.User
+        data = {
+            "is_authenticated": auth_user.is_authenticated,
+            "is_superuser": auth_user.is_superuser,
+            "username": auth_user.username,
+        }
+
+        # пробуем найти "доменного" пользователя (gym.User), связанного через account
+        try:
+            domain_user = User.objects.get(account=auth_user)
+            role = domain_user.role
+        except User.DoesNotExist:
+            domain_user = None
+            role = None
+
+        is_admin_role = role == User.Role.ADMIN
+        is_admin = auth_user.is_superuser or is_admin_role
+
+        data.update({
+            "role": role,
+            "is_admin": is_admin,
+        })
+
+        return Response(data)
 
     # ---- просто проверка: залогинен ли юзер ----
     @action(detail=False, url_path="check-login", methods=["GET"], permission_classes=[])
@@ -79,7 +108,7 @@ class UserProfileViewSet(GenericViewSet):
     # ---- Ввод OTP-кода ----
     @action(detail=False, url_path="otp-login", methods=["POST"], serializer_class=OTPSerializer)
     def otp_login(self, *args, **kwargs):
-        totp = totp = pyotp.TOTP("JBSWY3DPEHPK3PXP")
+        totp = pyotp.TOTP("JBSWY3DPEHPK3PXP")
 
         serializer = self.get_serializer(data=self.request.data)
         serializer.is_valid(raise_exception=True)
@@ -132,12 +161,53 @@ class UsersViewset(
 
     def get_queryset(self):
         qs = super().get_queryset()
-        role = self.request.query_params.get("role")
-        if role in ("client", "trainer"):
-            qs = qs.filter(role=role)
-        return qs
-    
-        # ---------- СТАТИСТИКА ----------
+        request_user = self.request.user
+
+        # пытаемся найти "доменного" юзера (для роли admin тоже)
+        current = None
+        try:
+            current = User.objects.get(account=request_user)
+        except User.DoesNotExist:
+            current = None
+
+        # флаг: считаем ли этого юзера администратором системы
+        is_admin_role = current and current.role == User.Role.ADMIN
+        is_admin = request_user.is_superuser or is_admin_role
+
+        # 🔹 1. Админ (любой) видит всех клиентов и тренеров, но не админов
+        if is_admin:
+            qs = qs.exclude(role=User.Role.ADMIN)
+            role_param = self.request.query_params.get("role")
+            if role_param in ("client", "trainer"):
+                qs = qs.filter(role=role_param)
+            return qs
+
+        # 🔹 2. Обычный пользователь: client / trainer
+
+        if current is None:
+            return User.objects.none()
+
+        # КЛИЕНТ: видит себя и всех тренеров
+        if current.role == User.Role.CLIENT:
+            return qs.exclude(role=User.Role.ADMIN).filter(
+                Q(id=current.id) | Q(role=User.Role.TRAINER)
+            )
+
+        # ТРЕНЕР: видит себя и своих клиентов
+        if current.role == User.Role.TRAINER:
+            client_ids = (
+                WorkoutSession.objects
+                .filter(trainer=current)
+                .values_list("client_id", flat=True)
+                .distinct()
+            )
+            return qs.exclude(role=User.Role.ADMIN).filter(
+                Q(id=current.id) | Q(id__in=client_ids)
+            )
+
+        return User.objects.none()
+
+    # ---------- СТАТИСТИКА ----------
     class StatsSerializer(serializers.Serializer):
         count = serializers.IntegerField()
         clients = serializers.IntegerField()
@@ -148,16 +218,87 @@ class UsersViewset(
 
     @action(detail=False, methods=["GET"], url_path="stats")
     def get_stats(self, request, *args, **kwargs):
-        stats = User.objects.aggregate(
-            count=Count("*"),
-            clients=Count("id", filter=Q(role="client")),
-            trainers=Count("id", filter=Q(role="trainer")),
-            min_id=Min("id"),
-            max_id=Max("id"),
-            avg_id=Avg("id"),
-        )
-        serializer = self.StatsSerializer(instance=stats)
-        return Response(serializer.data)
+        request_user = request.user
+
+        # пробуем найти доменного юзера
+        current = None
+        try:
+            current = User.objects.get(account=request_user)
+        except User.DoesNotExist:
+            current = None
+
+        is_admin_role = current and current.role == User.Role.ADMIN
+        is_admin = request_user.is_superuser or is_admin_role
+
+        # 🔹 1. АДМИН — старая глобальная статистика
+        if is_admin:
+            stats = User.objects.aggregate(
+                count=Count("*"),
+                clients=Count("id", filter=Q(role=User.Role.CLIENT)),
+                trainers=Count("id", filter=Q(role=User.Role.TRAINER)),
+                min_id=Min("id"),
+                max_id=Max("id"),
+                avg_id=Avg("id"),
+            )
+            serializer = self.StatsSerializer(instance=stats)
+            return Response(serializer.data)
+
+        # если доменного пользователя не нашли — пусто
+        if current is None:
+            stats = {
+                "count": 0,
+                "clients": 0,
+                "trainers": 0,
+                "min_id": None,
+                "max_id": None,
+                "avg_id": None,
+            }
+            return Response(self.StatsSerializer(instance=stats).data)
+
+        # 🔹 2. КЛИЕНТ: считаем количество тренеров
+        if current.role == User.Role.CLIENT:
+            # можно брать из get_queryset, чтобы совпадало с тем, что он видит
+            qs = self.get_queryset()
+            trainers_cnt = qs.filter(role=User.Role.TRAINER).count()
+            stats = {
+                "count": trainers_cnt,   # всего "интересных" записей
+                "clients": 0,
+                "trainers": trainers_cnt,
+                "min_id": None,
+                "max_id": None,
+                "avg_id": None,
+            }
+            return Response(self.StatsSerializer(instance=stats).data)
+
+        # 🔹 3. ТРЕНЕР: считаем количество его клиентов
+        if current.role == User.Role.TRAINER:
+            client_ids = (
+                WorkoutSession.objects
+                .filter(trainer=current)
+                .values_list("client_id", flat=True)
+                .distinct()
+            )
+            clients_cnt = len(list(client_ids))
+            stats = {
+                "count": clients_cnt,
+                "clients": clients_cnt,
+                "trainers": 0,
+                "min_id": None,
+                "max_id": None,
+                "avg_id": None,
+            }
+            return Response(self.StatsSerializer(instance=stats).data)
+
+        # на всякий случай
+        stats = {
+            "count": 0,
+            "clients": 0,
+            "trainers": 0,
+            "min_id": None,
+            "max_id": None,
+            "avg_id": None,
+        }
+        return Response(self.StatsSerializer(instance=stats).data)
 
 
 class MembershipTypesViewset(
@@ -173,14 +314,19 @@ class MembershipTypesViewset(
 
     # ----- СТАТИСТИКА -----
     class StatsSerializer(serializers.Serializer):
-        count = serializers.IntegerField()
+        id = serializers.IntegerField()
+        type = serializers.CharField()
+        users_count = serializers.IntegerField()
 
     @action(detail=False, methods=["GET"], url_path="stats")
     def get_stats(self, request, *args, **kwargs):
-        stats = MembershipType.objects.aggregate(
-            count=Count("*"),
+        # для каждого типа считаем количество уникальных клиентов
+        qs = (
+            MembershipType.objects
+            .annotate(users_count=Count("membership__client", distinct=True))
+            .values("id", "type", "users_count")
         )
-        serializer = self.StatsSerializer(instance=stats)
+        serializer = self.StatsSerializer(instance=qs, many=True)
         return Response(serializer.data)
 
 
@@ -202,18 +348,43 @@ class MembershipsViewset(
 
     def get_queryset(self):
         qs = super().get_queryset()
-        user = self.request.user
+        request_user = self.request.user
 
-        if user.is_superuser:
-            # суперюзер видит всех, но может фильтровать по owner ?owner=<id>
+        # пробуем найти доменного юзера
+        current = None
+        try:
+            current = User.objects.get(account=request_user)
+        except User.DoesNotExist:
+            current = None
+
+        is_admin_role = current and current.role == User.Role.ADMIN
+        is_admin = request_user.is_superuser or is_admin_role
+
+        # 🔹 админ — видит все абонементы
+        if is_admin:
             owner_id = self.request.query_params.get("owner")
             if owner_id:
                 qs = qs.filter(owner_id=owner_id)
-        else:
-            # обычный юзер видит только свои абонементы
-            qs = qs.filter(owner=user)
+            return qs
 
-        return qs
+        if current is None:
+            return Membership.objects.none()
+
+        if current.role == User.Role.CLIENT:
+            # клиент — только свои абонементы
+            return qs.filter(client=current)
+
+        if current.role == User.Role.TRAINER:
+            # тренер — абонементы своих клиентов
+            client_ids = (
+                WorkoutSession.objects
+                .filter(trainer=current)
+                .values_list("client_id", flat=True)
+                .distinct()
+            )
+            return qs.filter(client_id__in=client_ids)
+
+        return Membership.objects.none()
     
      # ----- СТАТИСТИКА -----
     class StatsSerializer(serializers.Serializer):
@@ -248,6 +419,34 @@ class WorkoutSessionsViewset(
     serializer_class = WorkoutSessionSerializer
     permission_classes = [IsAuthenticated, UserProfileViewSet.OTPForEdit]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        request_user = self.request.user
+
+        current = None
+        try:
+            current = User.objects.get(account=request_user)
+        except User.DoesNotExist:
+            current = None
+
+        is_admin_role = current and current.role == User.Role.ADMIN
+        is_admin = request_user.is_superuser or is_admin_role
+
+        # 🔹 админ видит все тренировки
+        if is_admin:
+            return qs
+
+        if current is None:
+            return WorkoutSession.objects.none()
+
+        if current.role == User.Role.CLIENT:
+            return qs.filter(client=current)
+
+        if current.role == User.Role.TRAINER:
+            return qs.filter(trainer=current)
+
+        return WorkoutSession.objects.none()
+
      # ----- СТАТИСТИКА -----
     class StatsSerializer(serializers.Serializer):
         total = serializers.IntegerField()
@@ -261,55 +460,165 @@ class WorkoutSessionsViewset(
 
     @action(detail=False, methods=["GET"], url_path="stats")
     def get_stats(self, request, *args, **kwargs):
-        qs = WorkoutSession.objects.all()
-        now = timezone.now() 
+        request_user = request.user
+
+        # пробуем найти доменного gym.User
+        current = None
+        try:
+            current = User.objects.get(account=request_user)
+        except User.DoesNotExist:
+            current = None
+
+        is_admin_role = current and current.role == User.Role.ADMIN
+        is_admin = request_user.is_superuser or is_admin_role
+
+        now = timezone.now()
         week_ago = now - timedelta(days=7)
 
-        base = qs.aggregate(
-            total=Count("*"),
-            last_7_days=Count(
-                "id",
-                filter=Q(session_date__gte=week_ago, session_date__lte=now),
-            ),
-            upcoming=Count(
-                "id",
-                filter=Q(session_date__gt=now),
-            ),
-            distinct_clients=Count("client", distinct=True),
-        )
+        # 🔹 1. АДМИН — старая глобальная статистика
+        if is_admin:
+            qs = WorkoutSession.objects.all()
+            base = qs.aggregate(
+                total=Count("*"),
+                last_7_days=Count(
+                    "id",
+                    filter=Q(session_date__gte=week_ago, session_date__lte=now),
+                ),
+                upcoming=Count(
+                    "id",
+                    filter=Q(session_date__gt=now),
+                ),
+                distinct_clients=Count("client", distinct=True),
+            )
 
-        total = base["total"] or 0
-        distinct_clients = base["distinct_clients"] or 0
-        avg_per_client = float(total) / distinct_clients if distinct_clients > 0 else 0.0
+            total = base["total"] or 0
+            distinct_clients = base["distinct_clients"] or 0
+            avg_per_client = float(total) / distinct_clients if distinct_clients > 0 else 0.0
 
-        # самый загруженный тренер
-        top_trainer = (
-            qs.values("trainer", "trainer__name")
-              .annotate(cnt=Count("id"))
-              .order_by("-cnt")
-              .first()
-        )
-        # самый активный клиент
-        top_client = (
-            qs.values("client", "client__name")
-              .annotate(cnt=Count("id"))
-              .order_by("-cnt")
-              .first()
-        )
+            top_trainer = (
+                qs.values("trainer", "trainer__name")
+                  .annotate(cnt=Count("id"))
+                  .order_by("-cnt")
+                  .first()
+            )
+            top_client = (
+                qs.values("client", "client__name")
+                  .annotate(cnt=Count("id"))
+                  .order_by("-cnt")
+                  .first()
+            )
 
+            stats = {
+                "total": total,
+                "last_7_days": base["last_7_days"] or 0,
+                "upcoming": base["upcoming"] or 0,
+                "avg_per_client": avg_per_client,
+                "top_trainer_name": top_trainer["trainer__name"] if top_trainer else None,
+                "top_trainer_sessions": top_trainer["cnt"] if top_trainer else None,
+                "top_client_name": top_client["client__name"] if top_client else None,
+                "top_client_sessions": top_client["cnt"] if top_client else None,
+            }
+            return Response(self.StatsSerializer(instance=stats).data)
+
+        # если доменного пользователя нет — всё нули
+        if current is None:
+            stats = {
+                "total": 0,
+                "last_7_days": 0,
+                "upcoming": 0,
+                "avg_per_client": 0.0,
+                "top_trainer_name": None,
+                "top_trainer_sessions": None,
+                "top_client_name": None,
+                "top_client_sessions": None,
+            }
+            return Response(self.StatsSerializer(instance=stats).data)
+
+        # 🔹 2. КЛИЕНТ: считаем его тренировки и самого частого тренера
+        if current.role == User.Role.CLIENT:
+            qs = WorkoutSession.objects.filter(client=current)
+
+            base = qs.aggregate(
+                total=Count("*"),
+                last_7_days=Count(
+                    "id",
+                    filter=Q(session_date__gte=week_ago, session_date__lte=now),
+                ),
+                upcoming=Count("id", filter=Q(session_date__gt=now)),
+            )
+
+            total = base["total"] or 0
+
+            # тренер, с которым чаще всего занимается
+            top_trainer = (
+                qs.values("trainer", "trainer__name")
+                  .annotate(cnt=Count("id"))
+                  .order_by("-cnt")
+                  .first()
+            )
+
+            stats = {
+                "total": total,                       # всего его тренировок
+                "last_7_days": base["last_7_days"] or 0,
+                "upcoming": base["upcoming"] or 0,
+                "avg_per_client": 0.0,               # для клиента не имеет смысла
+                "top_trainer_name": top_trainer["trainer__name"] if top_trainer else None,
+                "top_trainer_sessions": top_trainer["cnt"] if top_trainer else None,
+                "top_client_name": None,
+                "top_client_sessions": None,
+            }
+            return Response(self.StatsSerializer(instance=stats).data)
+
+        # 🔹 3. ТРЕНЕР: считаем его тренировки и самого активного клиента
+        if current.role == User.Role.TRAINER:
+            qs = WorkoutSession.objects.filter(trainer=current)
+
+            base = qs.aggregate(
+                total=Count("*"),
+                last_7_days=Count(
+                    "id",
+                    filter=Q(session_date__gte=week_ago, session_date__lte=now),
+                ),
+                upcoming=Count("id", filter=Q(session_date__gt=now)),
+                distinct_clients=Count("client", distinct=True),
+            )
+
+            total = base["total"] or 0
+            distinct_clients = base["distinct_clients"] or 0
+            avg_per_client = float(total) / distinct_clients if distinct_clients > 0 else 0.0
+
+            # самый активный клиент
+            top_client = (
+                qs.values("client", "client__name")
+                  .annotate(cnt=Count("id"))
+                  .order_by("-cnt")
+                  .first()
+            )
+
+            stats = {
+                "total": total,                      # всего проведённых тренировок
+                "last_7_days": base["last_7_days"] or 0,
+                "upcoming": base["upcoming"] or 0,
+                "avg_per_client": avg_per_client,
+                "top_trainer_name": None,
+                "top_trainer_sessions": None,
+                "top_client_name": top_client["client__name"] if top_client else None,
+                "top_client_sessions": top_client["cnt"] if top_client else None,
+            }
+            return Response(self.StatsSerializer(instance=stats).data)
+
+        # на всякий случай — нули
         stats = {
-            "total": total,
-            "last_7_days": base["last_7_days"] or 0,
-            "upcoming": base["upcoming"] or 0,
-            "avg_per_client": avg_per_client,
-            "top_trainer_name": top_trainer["trainer__name"] if top_trainer else None,
-            "top_trainer_sessions": top_trainer["cnt"] if top_trainer else None,
-            "top_client_name": top_client["client__name"] if top_client else None,
-            "top_client_sessions": top_client["cnt"] if top_client else None,
+            "total": 0,
+            "last_7_days": 0,
+            "upcoming": 0,
+            "avg_per_client": 0.0,
+            "top_trainer_name": None,
+            "top_trainer_sessions": None,
+            "top_client_name": None,
+            "top_client_sessions": None,
         }
-
-        serializer = self.StatsSerializer(instance=stats)
-        return Response(serializer.data)
+        return Response(self.StatsSerializer(instance=stats).data)
     
 
 

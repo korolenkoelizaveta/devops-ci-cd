@@ -18,6 +18,7 @@ router.register("users", UsersViewset, basename="users")
 router.register("membershiptype", MembershipTypesViewset, basename="membershiptype")
 router.register("membership", MembershipsViewset, basename="membership")
 router.register("workoutsession", WorkoutSessionsViewset, basename="workoutsession")
+router.register("userprofile", UserProfileViewSet, basename="userprofile")
 
 urlpatterns = [
     path("", views.ShowTrainerView.as_view(), name="trainers"),
