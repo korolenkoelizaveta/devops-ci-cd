@@ -202,6 +202,41 @@ onBeforeMount(async () => {
 
   await fetchUsers()
 })
+
+async function onExportXlsx() {
+  try {
+    const response = await axios.get("/api/users/export-excel/", {
+      responseType: "blob",
+    })
+
+    const contentType = response.headers["content-type"] || ""
+
+    // Если вдруг бэк вернул JSON (ошибка), а не файл
+    if (contentType.includes("application/json")) {
+      const text = await response.data.text()
+      try {
+        const json = JSON.parse(text)
+        alert(json.detail || json.error || "Ошибка при экспорте")
+      } catch {
+        alert("Ошибка при экспорте файла")
+      }
+      return
+    }
+
+    const blob = new Blob([response.data], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "users.xlsx"
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    console.error(err)
+    alert("Не удалось скачать файл (см. консоль браузера/сервер)")
+  }
+}
 </script>
 
 <template>
@@ -320,35 +355,45 @@ onBeforeMount(async () => {
 
     <!-- строка фильтров по столбцам -->
     <div class="row mb-3 g-2">
-      <!-- фильтр по роли (столбец "роль") -->
-      <div class="col-auto">
-        <select class="form-select" v-model="selectedRoleFilter">
-          <option value="">Все пользователи</option>
-          <option value="client">Клиенты</option>
-          <option value="trainer">Тренеры</option>
-        </select>
-      </div>
+  <!-- фильтр по роли -->
+  <div class="col-auto">
+    <select class="form-select" v-model="selectedRoleFilter">
+      <option value="">Все пользователи</option>
+      <option value="client">Клиенты</option>
+      <option value="trainer">Тренеры</option>
+    </select>
+  </div>
 
-      <!-- фильтр по ФИО (столбец "ФИО") -->
-      <div class="col-auto">
-        <input
-          type="text"
-          class="form-control"
-          v-model="nameFilter"
-          placeholder="Фильтр по ФИО"
-        />
-      </div>
+  <!-- фильтр по ФИО -->
+  <div class="col-auto">
+    <input
+      type="text"
+      class="form-control"
+      v-model="nameFilter"
+      placeholder="Фильтр по ФИО"
+    />
+  </div>
 
-      <!-- фильтр по специализации тренера (select), виден админу и клиенту, скрыт у тренера -->
-      <div class="col-auto" v-if="!isTrainerProfile">
-        <select class="form-select" v-model="trainerSpecFilter">
-          <option value="">Все специализации</option>
-          <option v-for="spec in trainerSpecs" :key="spec" :value="spec">
-            {{ spec }}
-          </option>
-        </select>
-      </div>
-    </div>
+  <!-- фильтр по специализации тренера -->
+  <div class="col-auto" v-if="!isTrainerProfile">
+    <select class="form-select" v-model="trainerSpecFilter">
+      <option value="">Все специализации</option>
+      <option v-for="spec in trainerSpecs" :key="spec" :value="spec">
+        {{ spec }}
+      </option>
+    </select>
+  </div>
+
+  <!-- КНОПКА ЭКСПОРТА -->
+  <div class="col-auto ms-auto" v-if="isAdminProfile">
+    <button class="btn btn-outline-secondary" @click="onExportXlsx">
+      <i class="bi bi-file-earmark-excel me-1"></i>
+      Скачать в Excel
+    </button>
+  </div>
+</div>
+
+    
 
     <!-- статистика -->
     <div class="row mb-3" v-if="stats">

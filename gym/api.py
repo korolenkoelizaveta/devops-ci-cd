@@ -11,6 +11,11 @@ from django.core.cache import cache
 from django.contrib.auth import authenticate, login, logout
 import pyotp
 
+import openpyxl
+from openpyxl import Workbook
+from io import BytesIO
+from django.http import HttpResponse
+
 from gym.models import User, MembershipType, Membership, WorkoutSession
 from gym.serializers import (
     UserSerializer,
@@ -355,6 +360,38 @@ class UsersViewset(
             "avg_id": None,
         }
         return Response(self.StatsSerializer(instance=stats).data)
+    
+    @action(detail=False, methods=["GET"], url_path="export-excel")
+    def export_excel(self, request, *args, **kwargs):
+        """
+        GET /api/users/export-excel/
+        Админ выгружает всех пользователей, остальные – только тех, кого им даёт get_queryset.
+        """
+        qs = self.get_queryset()
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Users"
+
+        # заголовки
+        ws.append(["ID", "ФИО", "Роль", "Телефон", "Специализация"])
+
+        for u in qs:
+            ws.append([
+                u.id,
+                u.name,
+                u.get_role_display() if hasattr(u, "get_role_display") else u.role,
+                u.phone or "",
+                u.specialization or "",
+            ])
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response["Content-Disposition"] = 'attachment; filename="users.xlsx"'
+
+        wb.save(response)
+        return response
 
 
 class MembershipTypesViewset(
