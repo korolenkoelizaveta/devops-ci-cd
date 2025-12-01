@@ -9,12 +9,12 @@ const stats = ref(null)
 
 const profile = ref(null)
 
-const roles = [
-  { value: "client", label: "Клиент" },
-  { value: "trainer", label: "Тренер" },
-]
-const selectedRoleFilter = ref("")
+// фильтры
+const selectedRoleFilter = ref("")      // клиент / тренер
+const nameFilter = ref("")              // фильтр по ФИО
+const trainerSpecFilter = ref("")       // фильтр по специализации тренера (select)
 
+// форма добавления / редактирования
 const userToAdd = ref({ name: "", role: "client", phone: "", specialization: "" })
 const userPictureRef = ref()
 const userAddImageUrl = ref("")
@@ -25,26 +25,80 @@ const editImageUrl = ref("")
 
 const imageModalUrl = ref("")
 
-const canManageUsers = computed(() => {
+// кто залогинен
+const isAdminProfile = computed(() => {
   const p = profile.value
   if (!p) return false
+  return Boolean(p.is_superuser || p.is_admin  || p.role === "admin")
+})
+const isTrainerProfile = computed(() => profile.value?.role === "trainer")
 
-  return Boolean(
-    p.is_superuser ||      
-    p.is_admin ||        
-    p.role === "admin"     
-  )
+// может ли управлять пользователями (создание/редакт/удаление)
+const canManageUsers = computed(() => isAdminProfile.value)
+
+// доступные специализации тренеров (для выпадающего списка)
+const trainerSpecs = computed(() => {
+  const set = new Set()
+  for (const u of users.value) {
+    if (u.role === "trainer" && u.specialization) {
+      set.add(u.specialization)
+    }
+  }
+  return Array.from(set)
 })
 
-async function fetchUsers() {
-  loading.value = true
-  let url = "/api/users/"
+// -------- фильтрация по столбцам --------
+const filteredUsers = computed(() => {
+  let res = users.value.slice()
+
+  // фильтр по роли (столбец "роль")
   if (selectedRoleFilter.value) {
-    url += `?role=${selectedRoleFilter.value}`
+    res = res.filter(u => u.role === selectedRoleFilter.value)
   }
 
+  // фильтр по ФИО
+  if (nameFilter.value.trim()) {
+    const needle = nameFilter.value.toLowerCase()
+    res = res.filter(u => (u.name || "").toLowerCase().includes(needle))
+  }
+
+  // фильтр по специализации тренера (только у тренеров), через выпадающий список
+  if (trainerSpecFilter.value) {
+    res = res.filter(u => {
+      if (u.role !== "trainer") return true      // клиенты не режутся этим фильтром
+      return u.specialization === trainerSpecFilter.value
+    })
+  }
+
+  return res
+})
+
+// -------- статистика --------
+const statsMessage = computed(() => {
+  if (!stats.value) return ""
+  const s = stats.value
+
+  // для клиента: нет клиентов, есть тренеры → «доступных тренеров»
+  if (s.clients === 0 && s.trainers > 0) {
+    return `Доступных тренеров: ${s.trainers}`
+  }
+
+  // для тренера: есть клиенты, нет тренеров → «моих клиентов»
+  if (s.trainers === 0 && s.clients > 0) {
+    return `Моих клиентов: ${s.clients}`
+  }
+
+  // для админа — общая статистика
+  return `Всего: ${s.count}, клиентов: ${s.clients}, тренеров: ${s.trainers}`
+})
+
+// -------- запросы --------
+async function fetchUsers() {
+  loading.value = true
+
+  // НИКАКИХ ?role= — бэкенд сам режет список по роли
   const [usersRes, statsRes] = await Promise.all([
-    axios.get(url),
+    axios.get("/api/users/"),
     axios.get("/api/users/stats/"),
   ])
 
@@ -52,21 +106,6 @@ async function fetchUsers() {
   stats.value = statsRes.data
   loading.value = false
 }
-
-const statsMessage = computed(() => {
-  if (!stats.value) return ""
-  const s = stats.value
-
-  if (s.clients === 0 && s.trainers > 0) {
-    return `Доступных тренеров: ${s.trainers}`
-  }
-
-  if (s.trainers === 0 && s.clients > 0) {
-    return `Моих клиентов: ${s.clients}`
-  }
-
-  return `Всего: ${s.count}, клиентов: ${s.clients}, тренеров: ${s.trainers}`
-})
 
 async function onUserAdd() {
   if (!canManageUsers.value) return
@@ -100,6 +139,7 @@ async function onUserAdd() {
 }
 
 async function onRemoveClick(user) {
+  if (!canManageUsers.value) return
   await axios.delete(`/api/users/${user.id}/`)
   await fetchUsers()
 }
@@ -134,6 +174,7 @@ async function onUpdateUser() {
   await fetchUsers()
 }
 
+// -------- картинки --------
 function onAddPictureChange() {
   if (userPictureRef.value?.files?.[0]) {
     userAddImageUrl.value = URL.createObjectURL(userPictureRef.value.files[0])
@@ -165,6 +206,7 @@ onBeforeMount(async () => {
 </script>
 
 <template>
+  <!-- модалка просмотра картинки -->
   <div class="modal fade" id="imageModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
       <div class="modal-content">
@@ -173,12 +215,13 @@ onBeforeMount(async () => {
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body text-center">
-          <img :src="imageModalUrl" class="img-fluid" style="max-height:70vh" alt="">
+          <img :src="imageModalUrl" class="img-fluid" style="max-height:70vh" alt="" />
         </div>
       </div>
     </div>
   </div>
 
+  <!-- модалка редактирования пользователя -->
   <div class="modal fade" id="editUserModal" tabindex="-1">
     <div class="modal-dialog">
       <div class="modal-content">
@@ -188,37 +231,45 @@ onBeforeMount(async () => {
         </div>
         <div class="modal-body">
           <div class="form-floating mb-2">
-            <input type="text" class="form-control" v-model="userToEdit.name">
+            <input type="text" class="form-control" v-model="userToEdit.name" />
             <label>ФИО</label>
           </div>
 
           <div v-if="userToEdit.role === 'client'" class="form-floating mb-2">
-            <input type="text" class="form-control" v-model="userToEdit.phone">
+            <input type="text" class="form-control" v-model="userToEdit.phone" />
             <label>Телефон</label>
           </div>
 
           <div v-else class="form-floating mb-2">
-            <input type="text" class="form-control" v-model="userToEdit.specialization">
+            <input type="text" class="form-control" v-model="userToEdit.specialization" />
             <label>Специализация</label>
           </div>
 
-          <input type="file" class="form-control mb-2" ref="editPictureRef" @change="onEditPictureChange">
-          <img :src="editImageUrl" v-if="editImageUrl" style="max-width:60px" alt="">
+          <input
+            type="file"
+            class="form-control mb-2"
+            ref="editPictureRef"
+            @change="onEditPictureChange"
+          />
+          <img :src="editImageUrl" v-if="editImageUrl" style="max-width:60px" alt="" />
         </div>
 
         <div class="modal-footer">
           <button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
-          <button class="btn btn-primary" data-bs-dismiss="modal" @click="onUpdateUser">Сохранить</button>
+          <button class="btn btn-primary" data-bs-dismiss="modal" @click="onUpdateUser">
+            Сохранить
+          </button>
         </div>
       </div>
     </div>
   </div>
 
   <div class="container-fluid p-3">
+    <!-- форма добавления только для админа -->
     <div class="row g-2 align-items-center mb-3" v-if="canManageUsers">
       <div class="col">
         <div class="form-floating">
-          <input type="text" class="form-control" v-model="userToAdd.name" required>
+          <input type="text" class="form-control" v-model="userToAdd.name" required />
           <label>ФИО</label>
         </div>
       </div>
@@ -235,89 +286,123 @@ onBeforeMount(async () => {
 
       <div class="col-auto" v-if="userToAdd.role === 'client'">
         <div class="form-floating">
-          <input type="text" class="form-control" v-model="userToAdd.phone" required>
+          <input type="text" class="form-control" v-model="userToAdd.phone" required />
           <label>Телефон</label>
         </div>
       </div>
 
       <div class="col-auto" v-if="userToAdd.role === 'trainer'">
         <div class="form-floating">
-          <input type="text" class="form-control" v-model="userToAdd.specialization" required>
+          <input
+            type="text"
+            class="form-control"
+            v-model="userToAdd.specialization"
+            required
+          />
           <label>Специализация</label>
         </div>
       </div>
 
       <div class="col-auto">
-        <input type="file" class="form-control" ref="userPictureRef" @change="onAddPictureChange">
+        <input
+          type="file"
+          class="form-control"
+          ref="userPictureRef"
+          @change="onAddPictureChange"
+        />
       </div>
       <div class="col-auto">
-        <img :src="userAddImageUrl" v-if="userAddImageUrl" style="max-width:60px" alt="">
+        <img :src="userAddImageUrl" v-if="userAddImageUrl" style="max-width:60px" alt="" />
       </div>
       <div class="col-auto">
         <button class="btn btn-primary" @click="onUserAdd">Добавить</button>
       </div>
     </div>
-<!--
-     <div class="row mb-3">
+
+    <!-- строка фильтров по столбцам -->
+    <div class="row mb-3 g-2">
+      <!-- фильтр по роли (столбец "роль") -->
       <div class="col-auto">
-        <select class="form-select" v-model="selectedRoleFilter" @change="fetchUsers">
+        <select class="form-select" v-model="selectedRoleFilter">
           <option value="">Все пользователи</option>
           <option value="client">Клиенты</option>
           <option value="trainer">Тренеры</option>
         </select>
       </div>
-    </div> -->
 
-    <div class="row mb-3" v-if="stats">
-  <div class="col">
-    <div class="alert alert-info py-2 mb-0">
-      <strong>Статистика пользователей:</strong>
-      <span class="ms-2">{{ statsMessage }}</span>
+      <!-- фильтр по ФИО (столбец "ФИО") -->
+      <div class="col-auto">
+        <input
+          type="text"
+          class="form-control"
+          v-model="nameFilter"
+          placeholder="Фильтр по ФИО"
+        />
+      </div>
+
+      <!-- фильтр по специализации тренера (select), виден админу и клиенту, скрыт у тренера -->
+      <div class="col-auto" v-if="!isTrainerProfile">
+        <select class="form-select" v-model="trainerSpecFilter">
+          <option value="">Все специализации</option>
+          <option v-for="spec in trainerSpecs" :key="spec" :value="spec">
+            {{ spec }}
+          </option>
+        </select>
+      </div>
     </div>
-  </div>
-</div>
 
+    <!-- статистика -->
+    <div class="row mb-3" v-if="stats">
+      <div class="col">
+        <div class="alert alert-info py-2 mb-0">
+          <strong>Статистика пользователей:</strong>
+          <span class="ms-2">{{ statsMessage }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- список пользователей -->
     <div v-if="loading" class="text-center p-3">Загрузка...</div>
     <div v-else>
-      <div v-for="user in users" :key="user.id" class="user-item">
-  <div>{{ user.name }}</div>
-  <div v-show="user.picture">
-    <img
-      :src="user.picture"
-      data-bs-toggle="modal"
-      data-bs-target="#imageModal"
-      @click="openImageModal(user.picture)"
-      style="max-width:60px; cursor:pointer;"
-      alt=""
-    >
-  </div>
-  <div>
-    <span v-if="user.role === 'client'">{{ user.phone || "—" }}</span>
-    <span v-else>{{ user.specialization || "—" }}</span>
-  </div>
-  <div>
-    <span class="badge bg-secondary">
-      {{ user.role === "client" ? "Клиент" : "Тренер" }}
-    </span>
-  </div>
+      <div v-for="user in filteredUsers" :key="user.id" class="user-item">
+        <div>{{ user.name }}</div>
+        <div v-show="user.picture">
+          <img
+            :src="user.picture"
+            data-bs-toggle="modal"
+            data-bs-target="#imageModal"
+            @click="openImageModal(user.picture)"
+            style="max-width:60px; cursor:pointer;"
+            alt=""
+          />
+        </div>
+        <div>
+          <span v-if="user.role === 'client'">{{ user.phone || "—" }}</span>
+          <span v-else>{{ user.specialization || "—" }}</span>
+        </div>
+        <div>
+          <span class="badge bg-secondary">
+            {{ user.role === "client" ? "Клиент" : "Тренер" }}
+          </span>
+        </div>
 
-  <button
-    v-if="canManageUsers"
-    class="btn btn-success"
-    @click="onUserEditClick(user)"
-    data-bs-toggle="modal"
-    data-bs-target="#editUserModal"
-  >
-    <i class="bi bi-pen-fill"></i>
-  </button>
-  <button
-    v-if="canManageUsers"
-    class="btn btn-danger"
-    @click="onRemoveClick(user)"
-  >
-    <i class="bi bi-x"></i>
-  </button>
-</div>
+        <button
+          v-if="canManageUsers"
+          class="btn btn-success"
+          @click="onUserEditClick(user)"
+          data-bs-toggle="modal"
+          data-bs-target="#editUserModal"
+        >
+          <i class="bi bi-pen-fill"></i>
+        </button>
+        <button
+          v-if="canManageUsers"
+          class="btn btn-danger"
+          @click="onRemoveClick(user)"
+        >
+          <i class="bi bi-x"></i>
+        </button>
+      </div>
     </div>
   </div>
 </template>

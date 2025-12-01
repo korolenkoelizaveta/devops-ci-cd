@@ -12,18 +12,64 @@ const stats = ref(null)
 
 const profile = ref(null)
 
+// --- права ---
 const canManageMemberships = computed(() => {
   const p = profile.value
   if (!p) return false
   return Boolean(p.is_superuser  || p.is_admin || p.role === "admin")
 })
 
+const isTrainerProfile = computed(() => profile.value?.role === "trainer")
+const isClientProfile = computed(() => profile.value?.role === "client")
+
+// --- формы ---
 const membershipToAdd = ref({ client: null, membership_type: null, is_active: true })
 const membershipToEdit = ref({})
 
+// --- словари по id ---
 const clientsById = computed(() => _.keyBy(clients.value, x => x.id))
 const membershipTypeById = computed(() => _.keyBy(membershipTypes.value, x => x.id))
 
+// --- ФИЛЬТРЫ ---
+// 1) по ФИО клиента (поиск)
+// 2) по типу абонемента (select)
+// 3) по активности (select)
+const clientNameFilter = ref("")
+const membershipTypeFilter = ref("")  // id типа абонемента или ""
+const isActiveFilter = ref("")        // "", "true", "false"
+
+// список для фильтра по типу
+const membershipTypeOptions = computed(() => membershipTypes.value)
+
+// отфильтрованные абонементы
+const filteredMemberships = computed(() => {
+  let res = memberships.value.slice()
+
+  // фильтр по ФИО клиента
+  if (clientNameFilter.value.trim()) {
+    const needle = clientNameFilter.value.toLowerCase()
+    res = res.filter(m => {
+      const client = clientsById.value[m.client]
+      return client && (client.name || "").toLowerCase().includes(needle)
+    })
+  }
+
+  // фильтр по типу абонемента
+  if (membershipTypeFilter.value) {
+    res = res.filter(m => String(m.membership_type) === String(membershipTypeFilter.value))
+  }
+
+  // фильтр по активности
+  if (isActiveFilter.value === "true") {
+    res = res.filter(m => m.is_active === true)
+  } else if (isActiveFilter.value === "false") {
+    res = res.filter(m => m.is_active === false)
+  }
+
+  return res
+})
+
+// --- загрузка данных ---
 async function fetchMemberships() {
   loading.value = true
 
@@ -48,6 +94,7 @@ async function fetchMembershipTypes() {
   membershipTypes.value = r.data
 }
 
+// --- CRUD ---
 async function onMembershipAdd() {
   if (!canManageMemberships.value) return
 
@@ -65,7 +112,6 @@ async function onRemoveClick(membership) {
 
 function onMembershipEditClick(membership) {
   if (!canManageMemberships.value) return
-
   membershipToEdit.value = { ...membership }
 }
 
@@ -94,6 +140,7 @@ onBeforeMount(async () => {
 </script>
 
 <template>
+  <!-- Модалка редактирования — только для админа -->
   <div
     class="modal fade"
     id="editMembershipModal"
@@ -181,6 +228,7 @@ onBeforeMount(async () => {
     </div>
   </div>
 
+  <!-- Форма добавления абонемента — только для админа -->
   <div class="container-fluid" v-if="canManageMemberships">
     <div class="p-2">
       <div class="row g-2">
@@ -242,6 +290,7 @@ onBeforeMount(async () => {
     </div>
   </div>
 
+  <!-- Статистика — только админ -->
   <div
     class="container-fluid mt-2"
     v-if="canManageMemberships && stats"
@@ -256,10 +305,58 @@ onBeforeMount(async () => {
     </div>
   </div>
 
+  <!-- Фильтры: для админа и тренера; для клиента НЕ показываем -->
+  <div
+    class="container-fluid mb-2"
+    v-if="!isClientProfile"
+  >
+    <div class="row g-2">
+      <!-- ФИО клиента (поиск) -->
+      <div class="col-auto">
+        <input
+          type="text"
+          class="form-control"
+          v-model="clientNameFilter"
+          placeholder="Фильтр по ФИО клиента"
+        >
+      </div>
+
+      <!-- Тип абонемента (select) -->
+      <div class="col-auto">
+        <select
+          class="form-select"
+          v-model="membershipTypeFilter"
+        >
+          <option value="">Все типы</option>
+          <option
+            v-for="type in membershipTypeOptions"
+            :key="type.id"
+            :value="type.id"
+          >
+            {{ type.type }}
+          </option>
+        </select>
+      </div>
+
+      <!-- Активность (select) -->
+      <div class="col-auto">
+        <select
+          class="form-select"
+          v-model="isActiveFilter"
+        >
+          <option value="">Все абонементы</option>
+          <option value="true">Только активные</option>
+          <option value="false">Только неактивные</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Список абонементов -->
   <div v-if="loading" class="p-3 text-center">Загрузка…</div>
   <div v-else>
     <div
-      v-for="item in memberships"
+      v-for="item in filteredMemberships"
       :key="item.id"
       class="membership-item"
     >

@@ -27,12 +27,66 @@ const clientNameById = id => usersById.value[id]?.name || ""
 const trainerNameById = id => usersById.value[id]?.name || ""
 
 const isAdmin = computed(() => !!profile.value?.is_superuser)
+const isClient = computed(() => profile.value?.role === "client")
+const isTrainer = computed(() => profile.value?.role === "trainer")
 
 const formattedAvgPerClient = computed(() => {
   if (!stats.value || stats.value.avg_per_client == null) return "0.0"
   return Number(stats.value.avg_per_client).toFixed(1)
 })
 
+/* ---------- ФИЛЬТРЫ ---------- */
+// для админа:
+//   - clientFilter (по клиенту)
+//   - trainerFilter (по тренеру)
+//   - dateFrom / dateTo
+// для клиента: trainerFilter + даты
+// для тренера: clientFilter + даты
+const clientFilter = ref("")   // поиск по ФИО клиента
+const trainerFilter = ref("")  // поиск по ФИО тренера
+const dateFrom = ref("")       // YYYY-MM-DD
+const dateTo = ref("")         // YYYY-MM-DD
+
+// отфильтрованный список тренировок
+const filteredWorkoutSessions = computed(() => {
+  let res = workoutSessions.value.slice()
+
+  // фильтр по клиенту (админ + тренер)
+  if ((isAdmin.value || isTrainer.value) && clientFilter.value.trim()) {
+    const needle = clientFilter.value.toLowerCase()
+    res = res.filter(ws =>
+      clientNameById(ws.client).toLowerCase().includes(needle)
+    )
+  }
+
+  // фильтр по тренеру (админ + клиент)
+  if ((isAdmin.value || isClient.value) && trainerFilter.value.trim()) {
+    const needle = trainerFilter.value.toLowerCase()
+    res = res.filter(ws =>
+      trainerNameById(ws.trainer).toLowerCase().includes(needle)
+    )
+  }
+
+  // фильтр по диапазону дат (все роли)
+  if (dateFrom.value || dateTo.value) {
+    const from = dateFrom.value ? new Date(dateFrom.value) : null
+    const to = dateTo.value ? new Date(dateTo.value) : null
+
+    if (from) from.setHours(0, 0, 0, 0)
+    if (to) to.setHours(23, 59, 59, 999)
+
+    res = res.filter(ws => {
+      const d = new Date(ws.session_date)
+      if (from && d < from) return false
+      if (to && d > to) return false
+      return true
+    })
+  }
+
+  return res
+})
+
+/* ---------- API ---------- */
 
 async function fetchProfile() {
   try {
@@ -56,7 +110,6 @@ async function fetchWorkoutSessionsAndStats() {
   workoutSessions.value = listRes.data
   stats.value = statsRes.data
 }
-
 
 async function onWorkoutSessionsAdd() {
   await axios.post("/api/workoutsession/", { ...workoutSessionsToAdd.value })
@@ -102,7 +155,7 @@ onBeforeMount(async () => {
   loading.value = true
   await fetchProfile()
   await Promise.all([
-    fetchUsers(),                
+    fetchUsers(),
     fetchWorkoutSessionsAndStats()
   ])
   loading.value = false
@@ -110,6 +163,7 @@ onBeforeMount(async () => {
 </script>
 
 <template>
+  <!-- Модалка редактирования (только админ) -->
   <div class="modal fade" id="editWorkoutSessionsModal" tabindex="-1">
     <div class="modal-dialog">
       <div class="modal-content">
@@ -178,6 +232,7 @@ onBeforeMount(async () => {
     </div>
   </div>
 
+  <!-- Форма добавления тренировки (админ + клиент + тренер) -->
   <div class="container-fluid">
     <div class="p-2">
       <div class="row g-2">
@@ -232,6 +287,7 @@ onBeforeMount(async () => {
     </div>
   </div>
 
+  <!-- Статистика (бэкенд уже отдаёт разную, оставляем как есть) -->
   <div class="container-fluid" v-if="stats">
     <div class="alert alert-info py-2 mb-2">
       <strong>Статистика тренировок:</strong><br />
@@ -243,9 +299,6 @@ onBeforeMount(async () => {
       </span>
       <span class="ms-3">
         предстоящие: {{ stats.upcoming }}<br />
-      </span>
-      <span class="ms-3">
-        среднее на клиента: {{ formattedAvgPerClient }}<br />
       </span>
       <template v-if="stats.top_trainer_name">
         <span class="ms-3">
@@ -262,10 +315,64 @@ onBeforeMount(async () => {
     </div>
   </div>
 
+  <!-- Фильтры -->
+  <div class="container-fluid mb-2">
+    <div class="row g-2 align-items-end">
+      <!-- фильтр по клиенту: админ + тренер -->
+      <div class="col-auto" v-if="isAdmin || isTrainer">
+        <div class="form-floating">
+          <input
+            type="text"
+            class="form-control"
+            v-model="clientFilter"
+            placeholder="Клиент"
+          />
+          <label>Фильтр по клиенту</label>
+        </div>
+      </div>
+
+      <!-- фильтр по тренеру: админ + клиент -->
+      <div class="col-auto" v-if="isAdmin || isClient">
+        <div class="form-floating">
+          <input
+            type="text"
+            class="form-control"
+            v-model="trainerFilter"
+            placeholder="Тренер"
+          />
+          <label>Фильтр по тренеру</label>
+        </div>
+      </div>
+
+      <!-- диапазон дат: все роли -->
+      <div class="col-auto">
+        <div class="form-floating">
+          <input
+            type="date"
+            class="form-control"
+            v-model="dateFrom"
+          />
+          <label>Дата от</label>
+        </div>
+      </div>
+      <div class="col-auto">
+        <div class="form-floating">
+          <input
+            type="date"
+            class="form-control"
+            v-model="dateTo"
+          />
+          <label>Дата до</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Список тренировок -->
   <div v-if="loading" class="p-3 text-center">Загрузка…</div>
   <div v-else>
     <div
-      v-for="item in workoutSessions"
+      v-for="item in filteredWorkoutSessions"
       :key="item.id"
       class="workoutSessions-item"
     >

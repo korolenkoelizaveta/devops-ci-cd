@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 </script>
 
 <template>
-  <div class="container">
+  <div class="container-fluid">
     <nav class="navbar navbar-expand-sm bg-body-tertiary">
       <div class="container-fluid">
         <a class="navbar-brand" href="#"><b>GYM</b></a>
