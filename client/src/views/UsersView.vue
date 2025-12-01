@@ -2,12 +2,13 @@
 import axios from "axios"
 import { ref, onBeforeMount, computed } from "vue"
 import Cookies from "js-cookie"
+import { useAuthStore } from "@/stores/auth"
+
+const auth = useAuthStore()
 
 const users = ref([])
 const loading = ref(false)
 const stats = ref(null)
-
-const profile = ref(null)
 
 // фильтры
 const selectedRoleFilter = ref("")      // клиент / тренер
@@ -25,13 +26,13 @@ const editImageUrl = ref("")
 
 const imageModalUrl = ref("")
 
-// кто залогинен
+// кто залогинен (берём из auth.user)
 const isAdminProfile = computed(() => {
-  const p = profile.value
-  if (!p) return false
-  return Boolean(p.is_superuser || p.is_admin  || p.role === "admin")
+  const u = auth.user
+  if (!u) return false
+  return Boolean(u.is_superuser ||  u.is_admin ||  u.role === "admin")
 })
-const isTrainerProfile = computed(() => profile.value?.role === "trainer")
+const isTrainerProfile = computed(() => auth.user?.role === "trainer")
 
 // может ли управлять пользователями (создание/редакт/удаление)
 const canManageUsers = computed(() => isAdminProfile.value)
@@ -192,13 +193,11 @@ function openImageModal(imageUrl) {
 }
 
 onBeforeMount(async () => {
-  axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken")
+  axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken") || ""
 
-  try {
-    const profileRes = await axios.get("/api/userprofile/info/")
-    profile.value = profileRes.data
-  } catch (e) {
-    profile.value = null
+  // если профиль ещё не загружен (например, после F5), подтянем его
+  if (auth.user === null) {
+    await auth.fetchProfile()
   }
 
   await fetchUsers()
@@ -377,7 +376,7 @@ onBeforeMount(async () => {
           />
         </div>
         <div>
-          <span v-if="user.role === 'client'">{{ user.phone || "—" }}</span>
+          <span v-if="user.role === 'client'">{{ user.phone || '—' }}</span>
           <span v-else>{{ user.specialization || "—" }}</span>
         </div>
         <div>

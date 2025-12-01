@@ -2,15 +2,19 @@
 import axios from "axios"
 import { ref, onBeforeMount, computed } from "vue"
 import Cookies from "js-cookie"
+import { useAuthStore } from "@/stores/auth"
+
+const auth = useAuthStore()
 
 const membershipTypes = ref([])
 const loading = ref(false)
-const stats = ref([])        
+const stats = ref([])
 
-const membershipTypeToAdd = ref({})
+const membershipTypeToAdd = ref({ type: "", description: "" })
 const membershipTypeToEdit = ref({})
 
-const profile = ref(null)
+// профиль читаем из стора
+const profile = computed(() => auth.user)
 
 const canManageMembershipTypes = computed(() => {
   const p = profile.value
@@ -38,7 +42,7 @@ async function onMembershipTypeAdd() {
   await axios.post("/api/membershiptype/", {
     ...membershipTypeToAdd.value,
   })
-  membershipTypeToAdd.value = {}
+  membershipTypeToAdd.value = { type: "", description: "" }
   await fetchMembershipTypes()
 }
 
@@ -49,7 +53,7 @@ async function onRemoveClick(membershiptype) {
   await fetchMembershipTypes()
 }
 
-async function onMembershipTypeEditClick(membershiptype) {
+function onMembershipTypeEditClick(membershiptype) {
   if (!canManageMembershipTypes.value) return
 
   membershipTypeToEdit.value = { ...membershiptype }
@@ -67,11 +71,9 @@ async function onUpdateMembershipType() {
 onBeforeMount(async () => {
   axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken")
 
-  try {
-    const profileRes = await axios.get("/api/userprofile/info/")
-    profile.value = profileRes.data
-  } catch (e) {
-    profile.value = null
+  // если профиль ещё не подгружен – подгружаем через стор
+  if (!auth.user) {
+    await auth.fetchProfile()
   }
 
   await fetchMembershipTypes()
@@ -79,6 +81,7 @@ onBeforeMount(async () => {
 </script>
 
 <template>
+  <!-- модалка редактирования -->
   <div
     class="modal fade"
     id="editMembershipTypeModal"
@@ -99,7 +102,7 @@ onBeforeMount(async () => {
           ></button>
         </div>
         <div class="modal-body">
-          <div class="row">
+          <div class="row g-2">
             <div class="col">
               <div class="form-floating">
                 <input
@@ -110,7 +113,7 @@ onBeforeMount(async () => {
                 <label>Тип абонемента</label>
               </div>
             </div>
-            <div class="col-auto">
+            <div class="col">
               <div class="form-floating">
                 <input
                   type="text"
@@ -144,8 +147,9 @@ onBeforeMount(async () => {
   </div>
 
   <div class="container-fluid">
+    <!-- форма добавления — только для админа -->
     <div class="p-2" v-if="canManageMembershipTypes">
-      <div class="row">
+      <div class="row g-2">
         <div class="col">
           <div class="form-floating">
             <input
@@ -157,7 +161,7 @@ onBeforeMount(async () => {
             <label>Тип абонемента</label>
           </div>
         </div>
-        <div class="col-auto">
+        <div class="col">
           <div class="form-floating">
             <input
               type="text"
@@ -168,37 +172,40 @@ onBeforeMount(async () => {
             <label>Описание</label>
           </div>
         </div>
-        <div class="col-auto">
-          <button class="btn btn-primary" @click="onMembershipTypeAdd">
+        <div class="col-auto d-flex align-items-center">
+          <button class="btn btn-primary mt-2 mt-md-0" @click="onMembershipTypeAdd">
             Добавить
           </button>
         </div>
       </div>
     </div>
 
+    <!-- таблица статистики — только для админа -->
     <div
       v-if="canManageMembershipTypes && stats && stats.length"
       class="mb-3"
     >
-      <div class="table-responsive small" >
-        <table class="table table-sm align-middle mb-0 ">
+      <div class="table-responsive small">
+        <table class="table table-sm align-middle mb-0">
           <thead>
-            <tr  >
-              <th style="background: #87CEFA;">Тип</th>
-              <th style="background: #87CEFA;">Кол-во </th>
+            <tr>
+              <th style="background:#87CEFA;">Тип</th>
+              <th style="background:#87CEFA;">Кол-во пользователей</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="row in stats" :key="row.id">
-              <td style="background: #d7effd;">{{ row.type }}</td>
-              <td style="background: #d7effd;">{{ row.users_count }}</td>
+              <td style="background:#d7effd;">{{ row.type }}</td>
+              <td style="background:#d7effd;">{{ row.users_count }}</td>
             </tr>
           </tbody>
         </table>
       </div>
     </div>
 
-    <div>
+    <!-- список типов абонементов -->
+    <div v-if="loading" class="p-3 text-center">Загрузка…</div>
+    <div v-else>
       <div
         v-for="item in membershipTypes"
         :key="item.id"
@@ -236,7 +243,7 @@ onBeforeMount(async () => {
   border-radius: 8px;
   display: grid;
   align-items: center;
-  grid-template-columns: 1fr auto auto auto;
+  grid-template-columns: 1fr 1fr auto auto;
   gap: 16px;
 }
 </style>

@@ -3,6 +3,9 @@ import axios from "axios"
 import { ref, onBeforeMount, computed } from "vue"
 import Cookies from "js-cookie"
 import _ from "lodash"
+import { useAuthStore } from "@/stores/auth"
+
+const auth = useAuthStore()
 
 const memberships = ref([])
 const clients = ref([])
@@ -10,13 +13,14 @@ const membershipTypes = ref([])
 const loading = ref(false)
 const stats = ref(null)
 
-const profile = ref(null)
+// профиль берём из стора (readonly)
+const profile = computed(() => auth.user)
 
 // --- права ---
 const canManageMemberships = computed(() => {
   const p = profile.value
   if (!p) return false
-  return Boolean(p.is_superuser  || p.is_admin || p.role === "admin")
+  return Boolean(p.is_superuser ||  p.is_admin || p.role === "admin")
 })
 
 const isTrainerProfile = computed(() => profile.value?.role === "trainer")
@@ -31,9 +35,6 @@ const clientsById = computed(() => _.keyBy(clients.value, x => x.id))
 const membershipTypeById = computed(() => _.keyBy(membershipTypes.value, x => x.id))
 
 // --- ФИЛЬТРЫ ---
-// 1) по ФИО клиента (поиск)
-// 2) по типу абонемента (select)
-// 3) по активности (select)
 const clientNameFilter = ref("")
 const membershipTypeFilter = ref("")  // id типа абонемента или ""
 const isActiveFilter = ref("")        // "", "true", "false"
@@ -128,11 +129,10 @@ async function onUpdateMembership() {
 
 onBeforeMount(async () => {
   axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken")
-  try {
-    const profileRes = await axios.get("/api/userprofile/info/")
-    profile.value = profileRes.data
-  } catch (e) {
-    profile.value = null
+
+  // если профиль ещё не загружен стором — подгружаем
+  if (!auth.user) {
+    await auth.fetchProfile()
   }
 
   await Promise.all([fetchMemberships(), fetchClients(), fetchMembershipTypes()])

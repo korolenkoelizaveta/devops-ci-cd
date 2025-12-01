@@ -8,7 +8,7 @@ from django.db.models import Avg, Count, Max, Min, Q
 from django.utils import timezone
 from datetime import timedelta
 from django.core.cache import cache
-from django.contrib.auth import authenticate, login
+from django.contrib.auth import authenticate, login, logout
 import pyotp
 
 from gym.models import User, MembershipType, Membership, WorkoutSession
@@ -21,9 +21,17 @@ from gym.serializers import (
 
 class UserProfileViewSet(GenericViewSet):
     """
-    ViewSet для проверки логина и работы с двойной аутентификацией (OTP).
+    ViewSet для:
+    - логина / логаута
+    - получения информации о текущем пользователе
+    - двойной аутентификации (OTP)
     """
     permission_classes = [IsAuthenticated]
+
+    # ---- Сериализатор для логина ----
+    class LoginSerializer(serializers.Serializer):
+        username = serializers.CharField()
+        password = serializers.CharField()
 
     # ---- Сериализатор для OTP-кода ----
     class OTPSerializer(serializers.Serializer):
@@ -58,28 +66,37 @@ class UserProfileViewSet(GenericViewSet):
 
             cache_key = f"otp_good:{request.user.id}"
             return bool(cache.get(cache_key, False))
-        
-    @action(detail=False, url_path="info", methods=["GET"])
+
+    # ---- Информация о текущем пользователе ----
+    @action(detail=False, url_path="info", methods=["GET"], permission_classes=[])
     def info(self, request, *args, **kwargs):
         auth_user = request.user
 
         # базовая инфа из auth.User
+        is_auth = auth_user.is_authenticated
+
         data = {
-            "is_authenticated": auth_user.is_authenticated,
-            "is_superuser": auth_user.is_superuser,
-            "username": auth_user.username,
+            "is_authenticated": is_auth,
+            "is_superuser": bool(auth_user.is_superuser) if is_auth else False,
+            "username": auth_user.username if is_auth else None,
         }
 
-        # пробуем найти "доменного" пользователя (gym.User), связанного через account
-        try:
-            domain_user = User.objects.get(account=auth_user)
-            role = domain_user.role
-        except User.DoesNotExist:
-            domain_user = None
-            role = None
+        # по умолчанию роли нет
+        role = None
+        domain_user = None
 
-        is_admin_role = role == User.Role.ADMIN
-        is_admin = auth_user.is_superuser or is_admin_role
+        # пробуем найти "доменного" пользователя (gym.User), только если юзер залогинен
+        if is_auth:
+            try:
+                domain_user = User.objects.get(account=auth_user)
+                role = domain_user.role
+            except User.DoesNotExist:
+                domain_user = None
+                role = None
+
+        # is_admin = либо superuser, либо роль ADMIN (если такая есть)
+        is_admin_role = role == getattr(User.Role, "ADMIN", "admin")
+        is_admin = bool((is_auth and auth_user.is_superuser) or is_admin_role)
 
         data.update({
             "role": role,
@@ -88,21 +105,54 @@ class UserProfileViewSet(GenericViewSet):
 
         return Response(data)
 
-    # ---- просто проверка: залогинен ли юзер ----
+    # ---- ЛОГИН ----
+    @action(
+        detail=False,
+        url_path="login",
+        methods=["POST"],
+        permission_classes=[],                 # логин доступен анонимам
+        serializer_class=LoginSerializer,
+    )
+    def user_login(self, request, *args, **kwargs):
+        """
+        POST /api/userprofile/login/
+        { "username": "...", "password": "..." }
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        username = serializer.validated_data["username"]
+        password = serializer.validated_data["password"]
+
+        user = authenticate(request, username=username, password=password)
+        if not user:
+            return Response(
+                {"success": False, "error": "Неверный логин или пароль"},
+                status=400,
+            )
+
+        login(request, user)
+        return Response({"success": True})
+
+    # ---- ЛОГАУТ ----
+    @action(
+        detail=False,
+        url_path="logout",
+        methods=["POST"],
+        permission_classes=[IsAuthenticated],
+    )
+    def user_logout(self, request, *args, **kwargs):
+        """
+        POST /api/userprofile/logout/
+        """
+        logout(request)
+        return Response({"success": True})
+
+    # ---- просто проверка: залогинен ли юзер (можно даже не использовать) ----
     @action(detail=False, url_path="check-login", methods=["GET"], permission_classes=[])
     def get_check_login(self, request, *args, **kwargs):
         return Response({
             "is_authenticated": self.request.user.is_authenticated
-        })
-
-    
-    @action(detail=False, url_path="login", methods=["GET"], permission_classes=[])
-    def use_login(self, request, *args, **kwargs):
-        user = authenticate(username="username", password="pass")
-        if user:
-            login(request, user)
-        return Response({
-            "is_authenticated": bool(user)
         })
 
     # ---- Ввод OTP-кода ----
@@ -135,6 +185,12 @@ class UserProfileViewSet(GenericViewSet):
 
         return Response({
             "otp_good": otp_good
+        })
+
+    @action(detail=False, url_path="otp-required", permission_classes=[OTPRequired])
+    def page_with_otp_required(self, *args, **kwargs):
+        return Response({
+            "success": True
         })
 
     @action(detail=False, url_path="otp-required", permission_classes=[OTPRequired])

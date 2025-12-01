@@ -3,13 +3,18 @@ import axios from "axios"
 import { ref, onBeforeMount, computed } from "vue"
 import Cookies from "js-cookie"
 import _ from "lodash"
+import { useAuthStore } from "@/stores/auth"
+
+const auth = useAuthStore()
 
 const workoutSessions = ref([])
 const users = ref([])
 
 const loading = ref(false)
 const stats = ref(null)
-const profile = ref(null)
+
+// профиль берём из стора
+const profile = computed(() => auth.user)
 
 const workoutSessionsToAdd = ref({ client: null, trainer: null, session_date: "" })
 const workoutSessionsToEdit = ref({})
@@ -26,7 +31,12 @@ const trainersForForm = computed(() =>
 const clientNameById = id => usersById.value[id]?.name || ""
 const trainerNameById = id => usersById.value[id]?.name || ""
 
-const isAdmin = computed(() => !!profile.value?.is_superuser)
+// права
+const isAdmin = computed(() => {
+  const p = profile.value
+  if (!p) return false
+  return Boolean(p.is_superuser ||  p.is_admin || p.role === "admin")
+})
 const isClient = computed(() => profile.value?.role === "client")
 const isTrainer = computed(() => profile.value?.role === "trainer")
 
@@ -36,18 +46,14 @@ const formattedAvgPerClient = computed(() => {
 })
 
 /* ---------- ФИЛЬТРЫ ---------- */
-// для админа:
-//   - clientFilter (по клиенту)
-//   - trainerFilter (по тренеру)
-//   - dateFrom / dateTo
-// для клиента: trainerFilter + даты
-// для тренера: clientFilter + даты
+// админ: clientFilter + trainerFilter + диапазон дат
+// клиент: trainerFilter + диапазон дат
+// тренер: clientFilter + диапазон дат
 const clientFilter = ref("")   // поиск по ФИО клиента
 const trainerFilter = ref("")  // поиск по ФИО тренера
 const dateFrom = ref("")       // YYYY-MM-DD
 const dateTo = ref("")         // YYYY-MM-DD
 
-// отфильтрованный список тренировок
 const filteredWorkoutSessions = computed(() => {
   let res = workoutSessions.value.slice()
 
@@ -67,7 +73,7 @@ const filteredWorkoutSessions = computed(() => {
     )
   }
 
-  // фильтр по диапазону дат (все роли)
+  // диапазон дат (все роли)
   if (dateFrom.value || dateTo.value) {
     const from = dateFrom.value ? new Date(dateFrom.value) : null
     const to = dateTo.value ? new Date(dateTo.value) : null
@@ -88,16 +94,8 @@ const filteredWorkoutSessions = computed(() => {
 
 /* ---------- API ---------- */
 
-async function fetchProfile() {
-  try {
-    const r = await axios.get("/api/userprofile/info/")
-    profile.value = r.data
-  } catch (e) {
-    profile.value = null
-  }
-}
-
 async function fetchUsers() {
+  // бэкенд уже режет список пользователей по роли (клиент видит себя+тренеров, тренер — себя+своих клиентов)
   const r = await axios.get("/api/users/")
   users.value = r.data
 }
@@ -152,12 +150,19 @@ async function onUpdateWorkoutSessions() {
 
 onBeforeMount(async () => {
   axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken")
+
   loading.value = true
-  await fetchProfile()
+
+  // если профиль ещё не загружен — тянем его из стора
+  if (!auth.user) {
+    await auth.fetchProfile()
+  }
+
   await Promise.all([
     fetchUsers(),
     fetchWorkoutSessionsAndStats()
   ])
+
   loading.value = false
 })
 </script>
@@ -232,7 +237,7 @@ onBeforeMount(async () => {
     </div>
   </div>
 
-  <!-- Форма добавления тренировки (админ + клиент + тренер) -->
+  <!-- Форма добавления тренировки (доступна всем ролям, как ты и делал) -->
   <div class="container-fluid">
     <div class="p-2">
       <div class="row g-2">
@@ -287,7 +292,7 @@ onBeforeMount(async () => {
     </div>
   </div>
 
-  <!-- Статистика (бэкенд уже отдаёт разную, оставляем как есть) -->
+  <!-- Статистика (бэкенд уже даёт нужную под роль) -->
   <div class="container-fluid" v-if="stats">
     <div class="alert alert-info py-2 mb-2">
       <strong>Статистика тренировок:</strong><br />
