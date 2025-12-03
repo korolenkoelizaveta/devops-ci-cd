@@ -13,10 +13,8 @@ const membershipTypes = ref([])
 const loading = ref(false)
 const stats = ref(null)
 
-// профиль берём из стора (readonly)
 const profile = computed(() => auth.user)
 
-// --- права ---
 const canManageMemberships = computed(() => {
   const p = profile.value
   if (!p) return false
@@ -26,27 +24,21 @@ const canManageMemberships = computed(() => {
 const isTrainerProfile = computed(() => profile.value?.role === "trainer")
 const isClientProfile = computed(() => profile.value?.role === "client")
 
-// --- формы ---
 const membershipToAdd = ref({ client: null, membership_type: null, is_active: true })
 const membershipToEdit = ref({})
 
-// --- словари по id ---
 const clientsById = computed(() => _.keyBy(clients.value, x => x.id))
 const membershipTypeById = computed(() => _.keyBy(membershipTypes.value, x => x.id))
 
-// --- ФИЛЬТРЫ ---
 const clientNameFilter = ref("")
-const membershipTypeFilter = ref("")  // id типа абонемента или ""
-const isActiveFilter = ref("")        // "", "true", "false"
+const membershipTypeFilter = ref("")  
+const isActiveFilter = ref("")       
 
-// список для фильтра по типу
 const membershipTypeOptions = computed(() => membershipTypes.value)
 
-// отфильтрованные абонементы
 const filteredMemberships = computed(() => {
   let res = memberships.value.slice()
 
-  // фильтр по ФИО клиента
   if (clientNameFilter.value.trim()) {
     const needle = clientNameFilter.value.toLowerCase()
     res = res.filter(m => {
@@ -55,12 +47,10 @@ const filteredMemberships = computed(() => {
     })
   }
 
-  // фильтр по типу абонемента
   if (membershipTypeFilter.value) {
     res = res.filter(m => String(m.membership_type) === String(membershipTypeFilter.value))
   }
 
-  // фильтр по активности
   if (isActiveFilter.value === "true") {
     res = res.filter(m => m.is_active === true)
   } else if (isActiveFilter.value === "false") {
@@ -70,7 +60,6 @@ const filteredMemberships = computed(() => {
   return res
 })
 
-// --- загрузка данных ---
 async function fetchMemberships() {
   loading.value = true
 
@@ -95,7 +84,6 @@ async function fetchMembershipTypes() {
   membershipTypes.value = r.data
 }
 
-// --- CRUD ---
 async function onMembershipAdd() {
   if (!canManageMemberships.value) return
 
@@ -130,7 +118,6 @@ async function onUpdateMembership() {
 onBeforeMount(async () => {
   axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken")
 
-  // если профиль ещё не загружен стором — подгружаем
   if (!auth.user) {
     await auth.fetchProfile()
   }
@@ -140,7 +127,6 @@ onBeforeMount(async () => {
 </script>
 
 <template>
-  <!-- Модалка редактирования — только для админа -->
   <div
     class="modal fade"
     id="editMembershipModal"
@@ -228,9 +214,8 @@ onBeforeMount(async () => {
     </div>
   </div>
 
-  <!-- Форма добавления абонемента — только для админа -->
   <div class="container-fluid" v-if="canManageMemberships">
-    <div class="p-2">
+    <div >
       <div class="row g-2">
         <div class="col">
           <div class="form-floating">
@@ -290,7 +275,6 @@ onBeforeMount(async () => {
     </div>
   </div>
 
-  <!-- Статистика — только админ -->
   <div
     class="container-fluid mt-2"
     v-if="canManageMemberships && stats"
@@ -305,13 +289,11 @@ onBeforeMount(async () => {
     </div>
   </div>
 
-  <!-- Фильтры: для админа и тренера; для клиента НЕ показываем -->
   <div
     class="container-fluid mb-2"
     v-if="!isClientProfile"
   >
     <div class="row g-2">
-      <!-- ФИО клиента (поиск) -->
       <div class="col-auto">
         <input
           type="text"
@@ -321,7 +303,6 @@ onBeforeMount(async () => {
         >
       </div>
 
-      <!-- Тип абонемента (select) -->
       <div class="col-auto">
         <select
           class="form-select"
@@ -338,7 +319,6 @@ onBeforeMount(async () => {
         </select>
       </div>
 
-      <!-- Активность (select) -->
       <div class="col-auto">
         <select
           class="form-select"
@@ -352,7 +332,6 @@ onBeforeMount(async () => {
     </div>
   </div>
 
-  <!-- Список абонементов -->
   <div v-if="loading" class="p-3 text-center">Загрузка…</div>
   <div v-else>
     <div

@@ -7,7 +7,7 @@ class User(models.Model):
     Сделать логику для тех ролей
     клиент -- видит свои тренировки(workoutsession) и всех тренеров в пользователях(user), видит свой абонемент(membership), и все типы абонементов(membershiptype)
     тренер -- видит свои тренировки(workoutsession) и своих клиентов(user), и их абонементы(membership), и все типы абонементов (membershiptype)
-    админ -- видит все(сейчас настроен)
+    админ -- видит все
     """
 
     class Role(models.TextChoices):

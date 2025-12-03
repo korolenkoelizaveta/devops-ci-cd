@@ -46,39 +46,27 @@ const router = createRouter({
   ],
 })
 
-/**
- * Глобальный guard:
- *  - на /login всегда пускаем (если уже залогинен — редирект на UsersView)
- *  - на любые другие страницы пускаем только если пользователь авторизован
- */
 router.beforeEach(async (to, from, next) => {
   const auth = useAuthStore()
 
-  // если идём на логин
   if (to.name === "LoginView") {
-    // если уже авторизованы — нет смысла показывать форму логина
+
     if (auth.isAuthenticated) {
       return next({ name: "UsersView" })
     }
     return next()
   }
-
-  // Для всех остальных маршрутов — нужна авторизация
-
-  // если ещё не загружали профиль — пробуем получить его с бэка
   if (auth.user === null) {
     await auth.fetchProfile()
   }
 
-  // если всё ещё не авторизован — отправляем на логин
   if (!auth.isAuthenticated) {
     return next({
       name: "LoginView",
-      query: { next: to.fullPath }, // можно потом использовать для редиректа обратно
+      query: { next: to.fullPath }, 
     })
   }
 
-  // всё ок — продолжаем
   next()
 })
 

@@ -12,8 +12,6 @@ const username = ref("")
 const password = ref("")
 const localError = ref("")
 
-axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken") || ""
-
 async function onSubmit() {
   localError.value = ""
   const ok = await auth.login(username.value, password.value)
@@ -21,7 +19,7 @@ async function onSubmit() {
     localError.value = auth.error || "Ошибка авторизации"
     return
   }
-  router.push({ name: "UsersView" }) // после логина — на главную страницу
+  router.push({ name: "UsersView" }) 
 }
 </script>
 

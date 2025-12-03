@@ -10,13 +10,19 @@ const users = ref([])
 const loading = ref(false)
 const stats = ref(null)
 
-// фильтры
-const selectedRoleFilter = ref("")      // клиент / тренер
-const nameFilter = ref("")              // фильтр по ФИО
-const trainerSpecFilter = ref("")       // фильтр по специализации тренера (select)
+const selectedRoleFilter = ref("")     
+const nameFilter = ref("")            
+const trainerSpecFilter = ref("")      
 
-// форма добавления / редактирования
-const userToAdd = ref({ name: "", role: "client", phone: "", specialization: "" })
+const userToAdd = ref({
+  name: "",
+  role: "client",
+  phone: "",
+  specialization: "",
+  username: "",
+  password: "",
+})
+
 const userPictureRef = ref()
 const userAddImageUrl = ref("")
 
@@ -26,7 +32,6 @@ const editImageUrl = ref("")
 
 const imageModalUrl = ref("")
 
-// кто залогинен (берём из auth.user)
 const isAdminProfile = computed(() => {
   const u = auth.user
   if (!u) return false
@@ -34,10 +39,8 @@ const isAdminProfile = computed(() => {
 })
 const isTrainerProfile = computed(() => auth.user?.role === "trainer")
 
-// может ли управлять пользователями (создание/редакт/удаление)
 const canManageUsers = computed(() => isAdminProfile.value)
 
-// доступные специализации тренеров (для выпадающего списка)
 const trainerSpecs = computed(() => {
   const set = new Set()
   for (const u of users.value) {
@@ -48,25 +51,21 @@ const trainerSpecs = computed(() => {
   return Array.from(set)
 })
 
-// -------- фильтрация по столбцам --------
 const filteredUsers = computed(() => {
   let res = users.value.slice()
 
-  // фильтр по роли (столбец "роль")
   if (selectedRoleFilter.value) {
     res = res.filter(u => u.role === selectedRoleFilter.value)
   }
 
-  // фильтр по ФИО
   if (nameFilter.value.trim()) {
     const needle = nameFilter.value.toLowerCase()
     res = res.filter(u => (u.name || "").toLowerCase().includes(needle))
   }
 
-  // фильтр по специализации тренера (только у тренеров), через выпадающий список
   if (trainerSpecFilter.value) {
     res = res.filter(u => {
-      if (u.role !== "trainer") return true      // клиенты не режутся этим фильтром
+      if (u.role !== "trainer") return true     
       return u.specialization === trainerSpecFilter.value
     })
   }
@@ -74,30 +73,24 @@ const filteredUsers = computed(() => {
   return res
 })
 
-// -------- статистика --------
 const statsMessage = computed(() => {
   if (!stats.value) return ""
   const s = stats.value
 
-  // для клиента: нет клиентов, есть тренеры → «доступных тренеров»
   if (s.clients === 0 && s.trainers > 0) {
     return `Доступных тренеров: ${s.trainers}`
   }
 
-  // для тренера: есть клиенты, нет тренеров → «моих клиентов»
   if (s.trainers === 0 && s.clients > 0) {
     return `Моих клиентов: ${s.clients}`
   }
 
-  // для админа — общая статистика
   return `Всего: ${s.count}, клиентов: ${s.clients}, тренеров: ${s.trainers}`
 })
 
-// -------- запросы --------
 async function fetchUsers() {
   loading.value = true
 
-  // НИКАКИХ ?role= — бэкенд сам режет список по роли
   const [usersRes, statsRes] = await Promise.all([
     axios.get("/api/users/"),
     axios.get("/api/users/stats/"),
@@ -126,13 +119,23 @@ async function onUserAdd() {
     formData.append("specialization", userToAdd.value.specialization || "")
   }
 
+  formData.append("username", userToAdd.value.username || "")
+  formData.append("password", userToAdd.value.password || "")
+
   await axios.post("/api/users/", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   })
 
   await fetchUsers()
 
-  userToAdd.value = { name: "", role: "client", phone: "", specialization: "" }
+  userToAdd.value = {
+    name: "",
+    role: "client",
+    phone: "",
+    specialization: "",
+    username: "",
+    password: "",
+  }
   if (userPictureRef.value) {
     userPictureRef.value.value = ""
   }
@@ -175,7 +178,6 @@ async function onUpdateUser() {
   await fetchUsers()
 }
 
-// -------- картинки --------
 function onAddPictureChange() {
   if (userPictureRef.value?.files?.[0]) {
     userAddImageUrl.value = URL.createObjectURL(userPictureRef.value.files[0])
@@ -195,7 +197,6 @@ function openImageModal(imageUrl) {
 onBeforeMount(async () => {
   axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken") || ""
 
-  // если профиль ещё не загружен (например, после F5), подтянем его
   if (auth.user === null) {
     await auth.fetchProfile()
   }
@@ -211,7 +212,6 @@ async function onExportXlsx() {
 
     const contentType = response.headers["content-type"] || ""
 
-    // Если вдруг бэк вернул JSON (ошибка), а не файл
     if (contentType.includes("application/json")) {
       const text = await response.data.text()
       try {
@@ -240,7 +240,6 @@ async function onExportXlsx() {
 </script>
 
 <template>
-  <!-- модалка просмотра картинки -->
   <div class="modal fade" id="imageModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
       <div class="modal-content">
@@ -255,7 +254,6 @@ async function onExportXlsx() {
     </div>
   </div>
 
-  <!-- модалка редактирования пользователя -->
   <div class="modal fade" id="editUserModal" tabindex="-1">
     <div class="modal-dialog">
       <div class="modal-content">
@@ -299,7 +297,6 @@ async function onExportXlsx() {
   </div>
 
   <div class="container-fluid p-3">
-    <!-- форма добавления только для админа -->
     <div class="row g-2 align-items-center mb-3" v-if="canManageUsers">
       <div class="col">
         <div class="form-floating">
@@ -337,6 +334,30 @@ async function onExportXlsx() {
         </div>
       </div>
 
+  <div class="col-auto">
+    <div class="form-floating">
+      <input
+        type="text"
+        class="form-control"
+        v-model="userToAdd.username"
+        required
+      />
+      <label>Логин</label>
+    </div>
+  </div>
+
+  <div class="col-auto">
+    <div class="form-floating">
+      <input
+        type="password"
+        class="form-control"
+        v-model="userToAdd.password"
+        required
+      />
+      <label>Пароль</label>
+    </div>
+  </div>
+
       <div class="col-auto">
         <input
           type="file"
@@ -353,9 +374,7 @@ async function onExportXlsx() {
       </div>
     </div>
 
-    <!-- строка фильтров по столбцам -->
     <div class="row mb-3 g-2">
-  <!-- фильтр по роли -->
   <div class="col-auto">
     <select class="form-select" v-model="selectedRoleFilter">
       <option value="">Все пользователи</option>
@@ -364,7 +383,6 @@ async function onExportXlsx() {
     </select>
   </div>
 
-  <!-- фильтр по ФИО -->
   <div class="col-auto">
     <input
       type="text"
@@ -374,7 +392,6 @@ async function onExportXlsx() {
     />
   </div>
 
-  <!-- фильтр по специализации тренера -->
   <div class="col-auto" v-if="!isTrainerProfile">
     <select class="form-select" v-model="trainerSpecFilter">
       <option value="">Все специализации</option>
@@ -384,7 +401,6 @@ async function onExportXlsx() {
     </select>
   </div>
 
-  <!-- КНОПКА ЭКСПОРТА -->
   <div class="col-auto ms-auto" v-if="isAdminProfile">
     <button class="btn btn-outline-secondary" @click="onExportXlsx">
       <i class="bi bi-file-earmark-excel me-1"></i>
@@ -395,7 +411,6 @@ async function onExportXlsx() {
 
     
 
-    <!-- статистика -->
     <div class="row mb-3" v-if="stats">
       <div class="col">
         <div class="alert alert-info py-2 mb-0">
@@ -405,7 +420,6 @@ async function onExportXlsx() {
       </div>
     </div>
 
-    <!-- список пользователей -->
     <div v-if="loading" class="text-center p-3">Загрузка...</div>
     <div v-else>
       <div v-for="user in filteredUsers" :key="user.id" class="user-item">
@@ -461,5 +475,7 @@ async function onExportXlsx() {
   align-items: center;
   grid-template-columns: 1fr auto auto auto auto auto;
   gap: 12px;
+  margin-left: 0;
+  margin-right: 0;
 }
 </style>

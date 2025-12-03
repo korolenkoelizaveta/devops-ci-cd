@@ -13,7 +13,6 @@ const users = ref([])
 const loading = ref(false)
 const stats = ref(null)
 
-// профиль берём из стора
 const profile = computed(() => auth.user)
 
 const workoutSessionsToAdd = ref({ client: null, trainer: null, session_date: "" })
@@ -31,7 +30,6 @@ const trainersForForm = computed(() =>
 const clientNameById = id => usersById.value[id]?.name || ""
 const trainerNameById = id => usersById.value[id]?.name || ""
 
-// права
 const isAdmin = computed(() => {
   const p = profile.value
   if (!p) return false
@@ -45,19 +43,15 @@ const formattedAvgPerClient = computed(() => {
   return Number(stats.value.avg_per_client).toFixed(1)
 })
 
-/* ---------- ФИЛЬТРЫ ---------- */
-// админ: clientFilter + trainerFilter + диапазон дат
-// клиент: trainerFilter + диапазон дат
-// тренер: clientFilter + диапазон дат
-const clientFilter = ref("")   // поиск по ФИО клиента
-const trainerFilter = ref("")  // поиск по ФИО тренера
-const dateFrom = ref("")       // YYYY-MM-DD
-const dateTo = ref("")         // YYYY-MM-DD
+
+const clientFilter = ref("")   
+const trainerFilter = ref("")  
+const dateFrom = ref("")     
+const dateTo = ref("")        
 
 const filteredWorkoutSessions = computed(() => {
   let res = workoutSessions.value.slice()
 
-  // фильтр по клиенту (админ + тренер)
   if ((isAdmin.value || isTrainer.value) && clientFilter.value.trim()) {
     const needle = clientFilter.value.toLowerCase()
     res = res.filter(ws =>
@@ -65,7 +59,6 @@ const filteredWorkoutSessions = computed(() => {
     )
   }
 
-  // фильтр по тренеру (админ + клиент)
   if ((isAdmin.value || isClient.value) && trainerFilter.value.trim()) {
     const needle = trainerFilter.value.toLowerCase()
     res = res.filter(ws =>
@@ -73,7 +66,6 @@ const filteredWorkoutSessions = computed(() => {
     )
   }
 
-  // диапазон дат (все роли)
   if (dateFrom.value || dateTo.value) {
     const from = dateFrom.value ? new Date(dateFrom.value) : null
     const to = dateTo.value ? new Date(dateTo.value) : null
@@ -92,10 +84,8 @@ const filteredWorkoutSessions = computed(() => {
   return res
 })
 
-/* ---------- API ---------- */
 
 async function fetchUsers() {
-  // бэкенд уже режет список пользователей по роли (клиент видит себя+тренеров, тренер — себя+своих клиентов)
   const r = await axios.get("/api/users/")
   users.value = r.data
 }
@@ -153,7 +143,6 @@ onBeforeMount(async () => {
 
   loading.value = true
 
-  // если профиль ещё не загружен — тянем его из стора
   if (!auth.user) {
     await auth.fetchProfile()
   }
@@ -168,7 +157,6 @@ onBeforeMount(async () => {
 </script>
 
 <template>
-  <!-- Модалка редактирования (только админ) -->
   <div class="modal fade" id="editWorkoutSessionsModal" tabindex="-1">
     <div class="modal-dialog">
       <div class="modal-content">
@@ -237,7 +225,6 @@ onBeforeMount(async () => {
     </div>
   </div>
 
-  <!-- Форма добавления тренировки (доступна всем ролям, как ты и делал) -->
   <div class="container-fluid">
     <div class="p-2">
       <div class="row g-2">
@@ -292,7 +279,6 @@ onBeforeMount(async () => {
     </div>
   </div>
 
-  <!-- Статистика (бэкенд уже даёт нужную под роль) -->
   <div class="container-fluid" v-if="stats">
     <div class="alert alert-info py-2 mb-2">
       <strong>Статистика тренировок:</strong><br />
@@ -320,10 +306,8 @@ onBeforeMount(async () => {
     </div>
   </div>
 
-  <!-- Фильтры -->
   <div class="container-fluid mb-2">
     <div class="row g-2 align-items-end">
-      <!-- фильтр по клиенту: админ + тренер -->
       <div class="col-auto" v-if="isAdmin || isTrainer">
         <div class="form-floating">
           <input
@@ -336,7 +320,6 @@ onBeforeMount(async () => {
         </div>
       </div>
 
-      <!-- фильтр по тренеру: админ + клиент -->
       <div class="col-auto" v-if="isAdmin || isClient">
         <div class="form-floating">
           <input
@@ -349,7 +332,6 @@ onBeforeMount(async () => {
         </div>
       </div>
 
-      <!-- диапазон дат: все роли -->
       <div class="col-auto">
         <div class="form-floating">
           <input
@@ -373,7 +355,6 @@ onBeforeMount(async () => {
     </div>
   </div>
 
-  <!-- Список тренировок -->
   <div v-if="loading" class="p-3 text-center">Загрузка…</div>
   <div v-else>
     <div

@@ -11,7 +11,6 @@ from gym.api import (
     WorkoutSessionsViewset,UserProfileViewSet
 )
 
-# --- API Router ---
 router = DefaultRouter()
 router.register("user-profile", UserProfileViewSet, basename="user-profile")
 router.register("users", UsersViewset, basename="users")

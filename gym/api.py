@@ -90,7 +90,6 @@ class UserProfileViewSet(GenericViewSet):
         role = None
         domain_user = None
 
-        # пробуем найти "доменного" пользователя (gym.User), только если юзер залогинен
         if is_auth:
             try:
                 domain_user = User.objects.get(account=auth_user)
@@ -99,7 +98,6 @@ class UserProfileViewSet(GenericViewSet):
                 domain_user = None
                 role = None
 
-        # is_admin = либо superuser, либо роль ADMIN (если такая есть)
         is_admin_role = role == getattr(User.Role, "ADMIN", "admin")
         is_admin = bool((is_auth and auth_user.is_superuser) or is_admin_role)
 
@@ -115,7 +113,7 @@ class UserProfileViewSet(GenericViewSet):
         detail=False,
         url_path="login",
         methods=["POST"],
-        permission_classes=[],                 # логин доступен анонимам
+        permission_classes=[],               
         serializer_class=LoginSerializer,
     )
     def user_login(self, request, *args, **kwargs):
@@ -224,18 +222,15 @@ class UsersViewset(
         qs = super().get_queryset()
         request_user = self.request.user
 
-        # пытаемся найти "доменного" юзера (для роли admin тоже)
         current = None
         try:
             current = User.objects.get(account=request_user)
         except User.DoesNotExist:
             current = None
 
-        # флаг: считаем ли этого юзера администратором системы
         is_admin_role = current and current.role == User.Role.ADMIN
         is_admin = request_user.is_superuser or is_admin_role
 
-        # 🔹 1. Админ (любой) видит всех клиентов и тренеров, но не админов
         if is_admin:
             qs = qs.exclude(role=User.Role.ADMIN)
             role_param = self.request.query_params.get("role")
@@ -243,18 +238,15 @@ class UsersViewset(
                 qs = qs.filter(role=role_param)
             return qs
 
-        # 🔹 2. Обычный пользователь: client / trainer
 
         if current is None:
             return User.objects.none()
 
-        # КЛИЕНТ: видит себя и всех тренеров
         if current.role == User.Role.CLIENT:
             return qs.exclude(role=User.Role.ADMIN).filter(
                 Q(id=current.id) | Q(role=User.Role.TRAINER)
             )
 
-        # ТРЕНЕР: видит себя и своих клиентов
         if current.role == User.Role.TRAINER:
             client_ids = (
                 WorkoutSession.objects
@@ -291,7 +283,6 @@ class UsersViewset(
         is_admin_role = current and current.role == User.Role.ADMIN
         is_admin = request_user.is_superuser or is_admin_role
 
-        # 🔹 1. АДМИН — старая глобальная статистика
         if is_admin:
             stats = User.objects.aggregate(
                 count=Count("*"),
@@ -316,7 +307,6 @@ class UsersViewset(
             }
             return Response(self.StatsSerializer(instance=stats).data)
 
-        # 🔹 2. КЛИЕНТ: считаем количество тренеров
         if current.role == User.Role.CLIENT:
             # можно брать из get_queryset, чтобы совпадало с тем, что он видит
             qs = self.get_queryset()
@@ -331,7 +321,6 @@ class UsersViewset(
             }
             return Response(self.StatsSerializer(instance=stats).data)
 
-        # 🔹 3. ТРЕНЕР: считаем количество его клиентов
         if current.role == User.Role.TRAINER:
             client_ids = (
                 WorkoutSession.objects
@@ -373,7 +362,6 @@ class UsersViewset(
         ws = wb.active
         ws.title = "Users"
 
-        # заголовки
         ws.append(["ID", "ФИО", "Роль", "Телефон", "Специализация"])
 
         for u in qs:
@@ -453,7 +441,6 @@ class MembershipsViewset(
         is_admin_role = current and current.role == User.Role.ADMIN
         is_admin = request_user.is_superuser or is_admin_role
 
-        # 🔹 админ — видит все абонементы
         if is_admin:
             owner_id = self.request.query_params.get("owner")
             if owner_id:
@@ -525,7 +512,6 @@ class WorkoutSessionsViewset(
         is_admin_role = current and current.role == User.Role.ADMIN
         is_admin = request_user.is_superuser or is_admin_role
 
-        # 🔹 админ видит все тренировки
         if is_admin:
             return qs
 
@@ -568,7 +554,6 @@ class WorkoutSessionsViewset(
         now = timezone.now()
         week_ago = now - timedelta(days=7)
 
-        # 🔹 1. АДМИН — старая глобальная статистика
         if is_admin:
             qs = WorkoutSession.objects.all()
             base = qs.aggregate(
@@ -627,7 +612,6 @@ class WorkoutSessionsViewset(
             }
             return Response(self.StatsSerializer(instance=stats).data)
 
-        # 🔹 2. КЛИЕНТ: считаем его тренировки и самого частого тренера
         if current.role == User.Role.CLIENT:
             qs = WorkoutSession.objects.filter(client=current)
 
@@ -651,7 +635,7 @@ class WorkoutSessionsViewset(
             )
 
             stats = {
-                "total": total,                       # всего его тренировок
+                "total": total,                      
                 "last_7_days": base["last_7_days"] or 0,
                 "upcoming": base["upcoming"] or 0,
                 "avg_per_client": 0.0,               # для клиента не имеет смысла
@@ -662,7 +646,6 @@ class WorkoutSessionsViewset(
             }
             return Response(self.StatsSerializer(instance=stats).data)
 
-        # 🔹 3. ТРЕНЕР: считаем его тренировки и самого активного клиента
         if current.role == User.Role.TRAINER:
             qs = WorkoutSession.objects.filter(trainer=current)
 
@@ -689,7 +672,7 @@ class WorkoutSessionsViewset(
             )
 
             stats = {
-                "total": total,                      # всего проведённых тренировок
+                "total": total,                     
                 "last_7_days": base["last_7_days"] or 0,
                 "upcoming": base["upcoming"] or 0,
                 "avg_per_client": avg_per_client,
@@ -700,7 +683,6 @@ class WorkoutSessionsViewset(
             }
             return Response(self.StatsSerializer(instance=stats).data)
 
-        # на всякий случай — нули
         stats = {
             "total": 0,
             "last_7_days": 0,

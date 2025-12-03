@@ -1,10 +1,31 @@
 from rest_framework import serializers
 from gym.models import User, MembershipType, Membership, WorkoutSession
+from django.contrib.auth import get_user_model
+
+AuthUser = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
     class Meta:
         model = User
-        fields = "__all__"
+        fields = "__all__" 
+        read_only_fields = ("account",)
+
+    def create(self, validated_data):
+        username = validated_data.pop("username", "").strip()
+        password = validated_data.pop("password", "").strip()
+
+        account = None
+        if username and password:
+            account = AuthUser.objects.create_user(
+                username=username,
+                password=password,
+            )
+
+        validated_data["account"] = account
+        return super().create(validated_data)
 
 class MembershipTypeSerializer(serializers.ModelSerializer):
     class Meta:

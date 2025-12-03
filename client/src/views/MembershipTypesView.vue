@@ -13,7 +13,6 @@ const stats = ref([])
 const membershipTypeToAdd = ref({ type: "", description: "" })
 const membershipTypeToEdit = ref({})
 
-// профиль читаем из стора
 const profile = computed(() => auth.user)
 
 const canManageMembershipTypes = computed(() => {
@@ -71,7 +70,6 @@ async function onUpdateMembershipType() {
 onBeforeMount(async () => {
   axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken")
 
-  // если профиль ещё не подгружен – подгружаем через стор
   if (!auth.user) {
     await auth.fetchProfile()
   }
@@ -81,7 +79,6 @@ onBeforeMount(async () => {
 </script>
 
 <template>
-  <!-- модалка редактирования -->
   <div
     class="modal fade"
     id="editMembershipTypeModal"
@@ -147,7 +144,6 @@ onBeforeMount(async () => {
   </div>
 
   <div class="container-fluid">
-    <!-- форма добавления — только для админа -->
     <div class="p-2" v-if="canManageMembershipTypes">
       <div class="row g-2">
         <div class="col">
@@ -180,7 +176,6 @@ onBeforeMount(async () => {
       </div>
     </div>
 
-    <!-- таблица статистики — только для админа -->
     <div
       v-if="canManageMembershipTypes && stats && stats.length"
       class="mb-3"
@@ -203,7 +198,6 @@ onBeforeMount(async () => {
       </div>
     </div>
 
-    <!-- список типов абонементов -->
     <div v-if="loading" class="p-3 text-center">Загрузка…</div>
     <div v-else>
       <div

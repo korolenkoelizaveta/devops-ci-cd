@@ -9,9 +9,6 @@ export const useAuthStore = defineStore("auth", () => {
   const error = ref(null)
   const otpGood = ref(false)
 
-  // CSRF один раз
-  axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken") || ""
-
   const isAuthenticated = computed(() => !!user.value?.is_authenticated)
 
   const isAdmin = computed(() => {
