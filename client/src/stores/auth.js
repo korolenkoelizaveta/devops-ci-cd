@@ -1,102 +1,103 @@
 import { defineStore } from "pinia"
-import { ref, computed } from "vue"
 import axios from "axios"
 import Cookies from "js-cookie"
 
-export const useAuthStore = defineStore("auth", () => {
-  const user = ref(null)        // тут будет ответ /api/userprofile/info/
-  const loading = ref(false)
-  const error = ref(null)
-  const otpGood = ref(false)
+axios.defaults.withCredentials = true
+axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken") || ""
 
-  const isAuthenticated = computed(() => !!user.value?.is_authenticated)
+export const useAuthStore = defineStore("auth", {
+  state: () => ({
+    user: null,      
+    loading: false,
+    error: null,
+    otpGood: null      
+  }),
 
-  const isAdmin = computed(() => {
-    const u = user.value
-    if (!u) return false
-    return Boolean(u.is_superuser || u.is_admin || u.role === "admin")
-  })
+  getters: {
+    isAuthenticated: (state) => !!(state.user && state.user.is_authenticated),
+    isAdmin(state) {
+      const u = state.user
+      if (!u) return false
+      return !!(u.is_superuser || u.is_admin || u.role === "admin")
+    },
+  },
+  
 
-  const isClient = computed(() => user.value?.role === "client")
-  const isTrainer = computed(() => user.value?.role === "trainer")
+  actions: {
+    async fetchProfile() {
+      try {
+        const r = await axios.get("/api/userprofile/info/")
+        this.user = r.data
+        this.error = null
+      } catch (e) {
+        this.user = null
+      }
+    },
 
-  async function fetchProfile() {
-    loading.value = true
-    error.value = null
-    try {
-      const r = await axios.get("/api/userprofile/info/")
-      user.value = r.data
-    } catch (e) {
-      console.error("fetchProfile error", e)
-      user.value = null
-      error.value = "Не удалось получить профиль"
-    } finally {
-      loading.value = false
-    }
-  }
-
-  async function login(username, password) {
-    loading.value = true
-    error.value = null
-    try {
-      await axios.post("/api/userprofile/login/", { username, password })
-      await fetchProfile()
-      return true
-    } catch (e) {
-      console.error("login error", e)
-      error.value = "Неверный логин или пароль"
-      return false
-    } finally {
-      loading.value = false
-    }
-  }
-
-  async function logout() {
-    loading.value = true
-    error.value = null
-    try {
-      await axios.post("/api/userprofile/logout/")
-    } catch (e) {
-      console.error("logout error", e)
-    } finally {
-      user.value = null
-      otpGood.value = false
-      loading.value = false
-    }
-  }
-
-  async function fetchOtpStatus() {
-    try {
+    async fetchOtpStatus() {
       const r = await axios.get("/api/userprofile/otp-status/")
-      otpGood.value = !!r.data.otp_good
-    } catch (e) {
-      console.error("otp-status error", e)
-      otpGood.value = false
-    }
-  }
+      this.otpGood = !!r.data.otp_good
+    },
 
-  async function otpLogin(code) {
-    try {
-      await axios.post("/api/userprofile/otp-login/", { key: code })
-      await fetchOtpStatus()
-    } catch (e) {
-      console.error("otp-login error", e)
-    }
-  }
+    async login(username, password) {
+      this.loading = true
+      this.error = null
+      this.otpGood = null
 
-  return {
-    user,
-    loading,
-    error,
-    isAuthenticated,
-    isAdmin,
-    isClient,
-    isTrainer,
-    otpGood,
-    fetchProfile,
-    login,
-    logout,
-    fetchOtpStatus,
-    otpLogin,
-  }
+      try {
+        const r = await axios.post("/api/userprofile/login/", {
+          username,
+          password,
+        })
+
+        if (!r.data.success) {
+          this.error = r.data.error || "Ошибка авторизации"
+          this.user = null
+          return false
+        }
+
+        await this.fetchProfile()
+        await this.fetchOtpStatus()
+
+        return true
+      } catch (e) {
+        this.error = "Ошибка авторизации"
+        this.user = null
+        this.otpGood = null
+        return false
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async logout() {
+      try {
+        await axios.post("/api/userprofile/logout/")
+      } catch (e) {
+        // пофиг
+      }
+      this.user = null
+      this.otpGood = null
+    },
+
+    // ввод кода 2FA
+    async otpLogin(code) {
+      try {
+        const r = await axios.post("/api/userprofile/otp-login/", {
+          key: code,
+        })
+
+        if (r.data && r.data.success) {
+          this.otpGood = true
+          return true
+        } else {
+          this.otpGood = false
+          return false
+        }
+      } catch (e) {
+        this.otpGood = false
+        return false
+      }
+    },
+  },
 })

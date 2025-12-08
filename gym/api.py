@@ -86,7 +86,6 @@ class UserProfileViewSet(GenericViewSet):
             "username": auth_user.username if is_auth else None,
         }
 
-        # по умолчанию роли нет
         role = None
         domain_user = None
 
@@ -108,7 +107,6 @@ class UserProfileViewSet(GenericViewSet):
 
         return Response(data)
 
-    # ---- ЛОГИН ----
     @action(
         detail=False,
         url_path="login",
@@ -119,7 +117,6 @@ class UserProfileViewSet(GenericViewSet):
     def user_login(self, request, *args, **kwargs):
         """
         POST /api/userprofile/login/
-        { "username": "...", "password": "..." }
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -137,7 +134,6 @@ class UserProfileViewSet(GenericViewSet):
         login(request, user)
         return Response({"success": True})
 
-    # ---- ЛОГАУТ ----
     @action(
         detail=False,
         url_path="logout",
@@ -151,33 +147,91 @@ class UserProfileViewSet(GenericViewSet):
         logout(request)
         return Response({"success": True})
 
-    # ---- просто проверка: залогинен ли юзер (можно даже не использовать) ----
     @action(detail=False, url_path="check-login", methods=["GET"], permission_classes=[])
     def get_check_login(self, request, *args, **kwargs):
         return Response({
             "is_authenticated": self.request.user.is_authenticated
         })
+    @action(detail=False, url_path="otp-get-key", methods=["GET"])
+    def otp_get_key(self, request, *args, **kwargs):
+        """
+        GET /api/userprofile/otp-get-key/
+        Генерирует TOTP-ключ и otpauth-URL
+        для текущего пользователя.
+        """
+        if not request.user.is_authenticated:
+            return Response({"detail": "Authentication required"}, status=401)
 
-    # ---- Ввод OTP-кода ----
-    @action(detail=False, url_path="otp-login", methods=["POST"], serializer_class=OTPSerializer)
-    def otp_login(self, *args, **kwargs):
-        totp = pyotp.TOTP("JBSWY3DPEHPK3PXP")
+        try:
+            domain_user = User.objects.get(account=request.user)
+        except User.DoesNotExist:
+            return Response({"detail": "Нет связанного пользователя gym.User"}, status=400)
 
-        serializer = self.get_serializer(data=self.request.data)
+        # если ключ ещё не создавали — генерим
+        if not domain_user.totp_key:
+            domain_user.totp_key = pyotp.random_base32()
+            domain_user.save()
+
+        totp = pyotp.TOTP(domain_user.totp_key)
+        url = totp.provisioning_uri(
+            name=request.user.username or (request.user.email or "user"),
+            issuer_name="GymApp",
+        )
+
+        return Response({"url": url})
+
+    @action(
+        detail=False,
+        url_path="otp-login",
+        methods=["POST"],
+        serializer_class=OTPSerializer,
+    )
+    def otp_login(self, request, *args, **kwargs):
+        """
+        POST /api/userprofile/otp-login/
+        { "key": "123456" }
+        Проверка одноразового кода из приложения (Google Authenticator)
+        """
+        if not request.user.is_authenticated:
+            return Response({"success": False, "error": "Not authenticated"}, status=401)
+
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        code = serializer.validated_data["key"]
 
-        success = False
-        if totp.now() == serializer.validated_data["key"]:
-            cache_key = f"otp_good:{self.request.user.id}"
-            # время жизни 5 мин
-            cache.set(cache_key, True, timeout=300)
-            success = True
+        try:
+            domain_user = User.objects.get(account=request.user)
+        except User.DoesNotExist:
+            return Response({"success": False, "error": "No gym.User for this account"}, status=400)
 
-        return Response({
-            "success": success
-        })
+        if not domain_user.totp_key:
+            return Response({"success": False, "error": "2FA not configured"}, status=400)
 
-    # ---- Статус: пройдена ли сейчас 2FA ----
+        totp = pyotp.TOTP(domain_user.totp_key)
+        success = totp.verify(code)  
+
+        if success:
+            cache_key = f"otp_good:{request.user.id}"
+            cache.set(cache_key, True, timeout=600) 
+
+        return Response({"success": success})
+
+    @action(
+        detail=False,
+        url_path="get-totp",
+        methods=["GET"],
+        permission_classes=[IsAuthenticated],
+    )
+    def get_totp(self, request, *args, **kwargs):
+        secret = "JBSWY3DPEHPK3PXP"
+
+        totp = pyotp.TOTP(secret)
+        url = totp.provisioning_uri(
+            name=request.user.username or "user",
+            issuer_name="GymApp",
+        )
+
+        return Response({"url": url})
     @action(detail=False, url_path="otp-status")
     def get_otp_status(self, *args, **kwargs):
         if not self.request.user.is_authenticated:
@@ -186,9 +240,7 @@ class UserProfileViewSet(GenericViewSet):
             cache_key = f"otp_good:{self.request.user.id}"
             otp_good = cache.get(cache_key, False)
 
-        return Response({
-            "otp_good": otp_good
-        })
+        return Response({"otp_good": otp_good})
 
     @action(detail=False, url_path="otp-required", permission_classes=[OTPRequired])
     def page_with_otp_required(self, *args, **kwargs):
@@ -196,11 +248,6 @@ class UserProfileViewSet(GenericViewSet):
             "success": True
         })
 
-    @action(detail=False, url_path="otp-required", permission_classes=[OTPRequired])
-    def page_with_otp_required(self, *args, **kwargs):
-        return Response({
-            "success": True
-        })
 
 class UsersViewset(
     mixins.CreateModelMixin,

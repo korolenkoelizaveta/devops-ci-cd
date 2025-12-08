@@ -226,7 +226,7 @@ onBeforeMount(async () => {
   </div>
 
   <div class="container-fluid">
-    <div class="p-2">
+    <div style="padding-bottom: 10px;">
       <div class="row g-2">
         <div class="col">
           <div class="form-floating">

@@ -5,21 +5,29 @@ import { useAuthStore } from "@/stores/auth"
 import axios from "axios"
 import Cookies from "js-cookie"
 
-const router = useRouter()
 const auth = useAuthStore()
+const router = useRouter()
 
 const username = ref("")
 const password = ref("")
-const localError = ref("")
+const error = ref("")
+
+axios.defaults.headers.common["X-CSRFToken"] = Cookies.get("csrftoken") || ""
 
 async function onSubmit() {
-  localError.value = ""
-  const ok = await auth.login(username.value, password.value)
-  if (!ok) {
-    localError.value = auth.error || "Ошибка авторизации"
+  const result = await auth.login(username.value, password.value)
+
+  if (result === false) {
+    error.value = "Неверный логин или пароль"
     return
   }
-  router.push({ name: "UsersView" }) 
+
+  if (result === "need-otp") {
+    router.push("/second-factor")
+    return
+  }
+
+  router.push("/users")
 }
 </script>
 

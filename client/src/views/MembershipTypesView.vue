@@ -144,7 +144,7 @@ onBeforeMount(async () => {
   </div>
 
   <div class="container-fluid">
-    <div class="p-2" v-if="canManageMembershipTypes">
+    <div style="padding-bottom: 10px;" v-if="canManageMembershipTypes">
       <div class="row g-2">
         <div class="col">
           <div class="form-floating">
@@ -180,7 +180,7 @@ onBeforeMount(async () => {
       v-if="canManageMembershipTypes && stats && stats.length"
       class="mb-3"
     >
-      <div class="table-responsive small">
+      <div class="table-responsive small" style="border-radius: 8px;" >
         <table class="table table-sm align-middle mb-0">
           <thead>
             <tr>
@@ -239,5 +239,7 @@ onBeforeMount(async () => {
   align-items: center;
   grid-template-columns: 1fr 1fr auto auto;
   gap: 16px;
+  margin-left: 0;
+  margin-right: 0;
 }
 </style>

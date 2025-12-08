@@ -7,10 +7,8 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-// шапку и меню не показываем на странице логина
 const showLayout = computed(() => route.name !== "LoginView")
 
-// подпись в шапке: имя + роль
 const userLabel = computed(() => {
   const u = auth.user
   if (!u || !auth.isAuthenticated) return ""
@@ -28,8 +26,6 @@ async function onLogout() {
   router.push({ name: "LoginView" })
 }
 
-// при первом заходе пробуем подтянуть профиль,
-// если вдруг стор ещё пустой (на случай обновления страницы)
 onBeforeMount(async () => {
   if (auth.user === null) {
     await auth.fetchProfile()
@@ -38,10 +34,8 @@ onBeforeMount(async () => {
 </script>
 
 <template>
-  <!-- страница логина — без шапки, просто рендерим RouterView -->
   <RouterView v-if="!showLayout" />
 
-  <!-- все остальные страницы -->
   <div v-else>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
       <div class="container-fluid">
@@ -59,7 +53,6 @@ onBeforeMount(async () => {
         </button>
 
         <div class="collapse navbar-collapse" id="mainNavbar">
-          <!-- ЛЕВАЯ ЧАСТЬ: разделы -->
           <ul class="navbar-nav me-auto mb-2 mb-lg-0">
             <li class="nav-item">
               <RouterLink
@@ -98,16 +91,21 @@ onBeforeMount(async () => {
               </RouterLink>
             </li>
           </ul>
-
-          <!-- ПРАВАЯ ЧАСТЬ: текущий пользователь + выход -->
           <div class="d-flex align-items-center">
+
             <span
               v-if="auth.isAuthenticated && userLabel"
               class="text-light me-3"
             >
               {{ userLabel }}
             </span>
-
+            <RouterLink
+              v-if="auth.isAuthenticated"
+              to="/second-factor"
+              class="btn btn-outline-warning btn-sm me-2"
+            >
+              2FA
+            </RouterLink>
             <button
               v-if="auth.isAuthenticated"
               class="btn btn-outline-light btn-sm"
