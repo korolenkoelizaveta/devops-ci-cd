@@ -9,8 +9,7 @@ export const useAuthStore = defineStore("auth", {
   state: () => ({
     user: null,      
     loading: false,
-    error: null,
-    otpGood: null      
+    error: null,    
   }),
 
   getters: {
@@ -34,11 +33,6 @@ export const useAuthStore = defineStore("auth", {
       }
     },
 
-    async fetchOtpStatus() {
-      const r = await axios.get("/api/userprofile/otp-status/")
-      this.otpGood = !!r.data.otp_good
-    },
-
     async login(username, password) {
       this.loading = true
       this.error = null
@@ -57,7 +51,6 @@ export const useAuthStore = defineStore("auth", {
         }
 
         await this.fetchProfile()
-        await this.fetchOtpStatus()
 
         return true
       } catch (e) {
@@ -74,30 +67,9 @@ export const useAuthStore = defineStore("auth", {
       try {
         await axios.post("/api/userprofile/logout/")
       } catch (e) {
-        // пофиг
       }
       this.user = null
-      this.otpGood = null
     },
 
-    // ввод кода 2FA
-    async otpLogin(code) {
-      try {
-        const r = await axios.post("/api/userprofile/otp-login/", {
-          key: code,
-        })
-
-        if (r.data && r.data.success) {
-          this.otpGood = true
-          return true
-        } else {
-          this.otpGood = false
-          return false
-        }
-      } catch (e) {
-        this.otpGood = false
-        return false
-      }
-    },
   },
 })

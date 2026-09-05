@@ -92,6 +92,15 @@ onBeforeMount(async () => {
             </li>
           </ul>
           <div class="d-flex align-items-center">
+          <RouterLink
+            v-if="!auth.isAuthenticated"
+            :to="{ name: 'LoginView' }"
+            class="btn btn-outline-light btn-sm"
+            title="Войти"
+            aria-label="Войти"
+          >
+            <i class="bi bi-person-circle fs-5"></i>
+          </RouterLink>
 
             <span
               v-if="auth.isAuthenticated && userLabel"
@@ -99,13 +108,6 @@ onBeforeMount(async () => {
             >
               {{ userLabel }}
             </span>
-            <RouterLink
-              v-if="auth.isAuthenticated"
-              to="/second-factor"
-              class="btn btn-outline-warning btn-sm me-2"
-            >
-              2FA
-            </RouterLink>
             <button
               v-if="auth.isAuthenticated"
               class="btn btn-outline-light btn-sm"

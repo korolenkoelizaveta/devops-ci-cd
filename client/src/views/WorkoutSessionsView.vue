@@ -225,7 +225,7 @@ onBeforeMount(async () => {
     </div>
   </div>
 
-  <div class="container-fluid">
+  <div class="container-fluid" v-if="auth.isAuthenticated">
     <div style="padding-bottom: 10px;">
       <div class="row g-2">
         <div class="col">

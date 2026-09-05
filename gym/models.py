@@ -30,9 +30,6 @@ class User(models.Model):
     specialization = models.TextField("Специализация", blank=True, null=True)  # для тренера
     picture = models.ImageField("Изображение", null=True, blank=True, upload_to="users")
     
-
-    totp_key = models.CharField("TOTP-ключ", max_length=64, blank=True, null=True)
-    
     class Meta:
         verbose_name = "Пользователь"
         verbose_name_plural = "Пользователи"

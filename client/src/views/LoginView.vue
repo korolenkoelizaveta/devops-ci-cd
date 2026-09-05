@@ -22,11 +22,6 @@ async function onSubmit() {
     return
   }
 
-  if (result === "need-otp") {
-    router.push("/second-factor")
-    return
-  }
-
   router.push("/users")
 }
 </script>
