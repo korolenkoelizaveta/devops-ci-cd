@@ -25,14 +25,14 @@ pipeline {
             }
         }
 
-        stage('Backend Tests') {
+        stage('Tests') {
             steps {
-                echo 'Запуск 20 CRUD-тестов Django'
+                echo 'Запуск 20 CRUD-тестов'
                 bat 'python manage.py test'
             }
         }
 
-        stage('Frontend Build') {
+        stage('Build') {
             steps {
                 echo 'Сборка Vue'
                 dir('client') {
@@ -41,33 +41,26 @@ pipeline {
             }
         }
 
-        stage('Promote to Main') {
-            steps {
-                echo 'Продвижение проверенной версии dev в main'
-
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'github-push',
-                        usernameVariable: 'GIT_USERNAME',
-                        passwordVariable: 'GIT_TOKEN'
-                    )
-                ]) {
-                    bat '''
-                        @echo off
-                        git push https://%GIT_USERNAME%:%GIT_TOKEN%@github.com/korolenkoelizaveta/devops-ci-cd.git HEAD:main
-                    '''
+        stage('Deploy') {
+            when {
+                expression {
+                    env.GIT_BRANCH == 'origin/main'
                 }
+            }
+
+            steps {
+                echo 'Развертывание стабильной версии приложения'
             }
         }
     }
 
     post {
         success {
-            echo 'CI pipeline успешно завершен'
+            echo 'Pipeline успешно завершен'
         }
 
         failure {
-            echo 'CI pipeline завершен с ошибкой'
+            echo 'Pipeline завершен с ошибкой'
         }
     }
 }
