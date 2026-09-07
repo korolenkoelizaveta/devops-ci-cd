@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    options {
+        skipDefaultCheckout(true)
+    }
+
     stages {
         stage('Checkout') {
             steps {
@@ -41,7 +45,7 @@ pipeline {
             }
         }
 
-        stage('Deploy') {
+        stage('Prepare Release') {
             when {
                 expression {
                     env.GIT_BRANCH == 'origin/main'
@@ -49,7 +53,39 @@ pipeline {
             }
 
             steps {
-                echo 'Развертывание стабильной версии приложения'
+                echo 'Подготовка стабильной версии приложения'
+
+                bat '''
+                    if exist release rmdir /S /Q release
+                    mkdir release
+
+                    xcopy app release\\app /E /I /Y
+                    xcopy gym release\\gym /E /I /Y
+                    xcopy client\\dist release\\client\\dist /E /I /Y
+
+                    copy manage.py release\\
+                    copy requirements.txt release\\
+
+                    for /d /r release %%d in (__pycache__) do @if exist "%%d" rd /s /q "%%d"
+                    del /S /Q release\\*.pyc 2>nul
+                '''
+            }
+        }
+
+        stage('Delivery') {
+            when {
+                expression {
+                    env.GIT_BRANCH == 'origin/main'
+                }
+            }
+
+            steps {
+                echo 'Сохранение релизной версии в Jenkins'
+
+                archiveArtifacts(
+                    artifacts: 'release/**/*',
+                    fingerprint: true
+                )
             }
         }
     }
