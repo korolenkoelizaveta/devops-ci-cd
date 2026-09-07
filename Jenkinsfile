@@ -27,7 +27,7 @@ pipeline {
 
         stage('Backend Tests') {
             steps {
-                echo 'Запуск автоматических тестов Django'
+                echo 'Запуск 20 CRUD-тестов Django'
                 bat 'python manage.py test'
             }
         }
@@ -37,6 +37,25 @@ pipeline {
                 echo 'Сборка Vue'
                 dir('client') {
                     bat 'npm run build'
+                }
+            }
+        }
+
+        stage('Promote to Main') {
+            steps {
+                echo 'Продвижение проверенной версии dev в main'
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'github-push',
+                        usernameVariable: 'GIT_USERNAME',
+                        passwordVariable: 'GIT_TOKEN'
+                    )
+                ]) {
+                    bat '''
+                        @echo off
+                        git push https://%GIT_USERNAME%:%GIT_TOKEN%@github.com/korolenkoelizaveta/devops-ci-cd.git HEAD:main
+                    '''
                 }
             }
         }
