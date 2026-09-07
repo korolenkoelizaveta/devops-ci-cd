@@ -12,7 +12,7 @@ pipeline {
         stage('Backend Dependencies') {
             steps {
                 echo 'Установка зависимостей Django'
-                bat 'py -m pip install -r requirements.txt'
+                bat 'python -m pip install -r requirements.txt'
             }
         }
 
@@ -28,7 +28,7 @@ pipeline {
         stage('Backend Tests') {
             steps {
                 echo 'Запуск автоматических тестов Django'
-                bat 'py manage.py test'
+                bat 'python manage.py test'
             }
         }
 
